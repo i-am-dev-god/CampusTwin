@@ -114,6 +114,48 @@ function useStoredSet(key, fallback) {
   return [value, setValue];
 }
 
+function useStoredList(key, fallback = []) {
+  const [value, setValue] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem(key);
+      const parsed = saved ? JSON.parse(saved) : fallback;
+      return Array.isArray(parsed) ? parsed : fallback;
+    } catch {
+      return fallback;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(value));
+    } catch {
+      // The portal still works if local storage is unavailable.
+    }
+  }, [key, value]);
+
+  return [value, setValue];
+}
+
+function toDateTimeInputValue(date) {
+  const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return localDate.toISOString().slice(0, 16);
+}
+
+function getDayOffsetForDate(date) {
+  const today = new Date();
+  today.setHours(12, 0, 0, 0);
+  const eventDate = new Date(date);
+  eventDate.setHours(12, 0, 0, 0);
+  return Math.round((eventDate.getTime() - today.getTime()) / 86400000);
+}
+
+function formatDuration(start, end) {
+  const totalMinutes = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return [hours ? `${hours} hour${hours === 1 ? '' : 's'}` : '', minutes ? `${minutes} minutes` : ''].filter(Boolean).join(' ');
+}
+
 function getDateParts(offset = 0) {
   const date = new Date();
   date.setHours(12, 0, 0, 0);
@@ -130,6 +172,19 @@ function getEventDayLabel(offset) {
   if (offset === 0) return 'TODAY';
   if (offset === 1) return 'TOMORROW';
   return getDateParts(offset).weekday;
+}
+
+function getEventStartTimestamp(event) {
+  if (event.startsAt && Number.isFinite(Date.parse(event.startsAt))) return Date.parse(event.startsAt);
+  const date = new Date();
+  date.setDate(date.getDate() + event.dayOffset);
+  date.setHours(12, 0, 0, 0);
+  const time = event.time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+  if (time) {
+    const hour = (Number(time[1]) % 12) + (time[3].toUpperCase() === 'PM' ? 12 : 0);
+    date.setHours(hour, Number(time[2]), 0, 0);
+  }
+  return date.getTime();
 }
 
 function Icon({ name, size = 18, strokeWidth = 1.8, ...props }) {
@@ -303,7 +358,7 @@ function NotificationPanel({ unreadCount, readAnnouncements, onOpenNotice, onAll
   );
 }
 
-function OverviewPage({ navigate, onOpenEvent, onOpenNotice, registeredEvents, readAnnouncements }) {
+function OverviewPage({ navigate, onOpenEvent, onOpenNotice, registeredEvents, readAnnouncements, eventList }) {
   const date = getDateParts(0);
   const unreadCount = announcements.filter((item) => !readAnnouncements.has(item.id)).length;
   const shortcuts = [
@@ -342,11 +397,11 @@ function OverviewPage({ navigate, onOpenEvent, onOpenNotice, registeredEvents, r
       <div className="content-grid overview-content-grid">
         <section className="surface-card upcoming-panel">
           <div className="section-heading">
-            <div><p className="section-overline">CAMPUS CALENDAR</p><h2>Upcoming events <span className="heading-count">03</span></h2></div>
+            <div><p className="section-overline">CAMPUS CALENDAR</p><h2>Upcoming events <span className="heading-count">{String(Math.min(eventList.length, 3)).padStart(2, '0')}</span></h2></div>
             <button className="text-button" onClick={() => navigate('events')}>View all <ArrowRight size={15} /></button>
           </div>
           <div className="upcoming-list">
-            {events.slice(0, 3).map((item) => <UpcomingEvent key={item.id} event={item} onClick={() => onOpenEvent(item)} registered={registeredEvents.has(item.id)} />)}
+            {eventList.slice(0, 3).map((item) => <UpcomingEvent key={item.id} event={item} onClick={() => onOpenEvent(item)} registered={registeredEvents.has(item.id)} />)}
           </div>
           <button className="panel-footer-link" onClick={() => navigate('events')}>View all events <ArrowRight size={15} /></button>
         </section>
@@ -394,15 +449,24 @@ function BulletinItem({ item, onClick }) {
   );
 }
 
-function EventsPage({ onOpenEvent, registeredEvents }) {
+function EventsPage({ onOpenEvent, registeredEvents, eventList }) {
   const [activeFilter, setActiveFilter] = useState('All events');
-  const filters = ['All events', 'Workshops', 'Talks', 'Hackathons', 'Culture & community'];
-  const filteredEvents = events.filter((event) => {
+  const [eventView, setEventView] = useState('all');
+  const [expandedGroup, setExpandedGroup] = useState('');
+  const filters = ['All events', 'Workshops', 'Talks', 'Hackathons', 'Culture & community', 'Club events'];
+  const filteredEvents = eventList.filter((event) => {
     if (activeFilter === 'All events') return true;
     if (activeFilter === 'Culture & community') return ['culture', 'community'].includes(event.category.toLowerCase());
+    if (activeFilter === 'Club events') return event.category.toLowerCase() === 'club event';
     return event.category.toLowerCase() === activeFilter.replace(/s$/, '').toLowerCase();
   });
-  const eventCount = events.filter((event) => event.dayOffset < 7).length;
+  const weekEvents = eventList.filter((event) => event.dayOffset < 7);
+  const nextEvent = eventList[0];
+  const groups = [...new Set(eventList.map((event) => event.host))].map((name) => ({
+    name,
+    events: eventList.filter((event) => event.host === name),
+  }));
+  const visibleCount = eventView === 'all' ? filteredEvents.length : eventList.length;
 
   return (
     <div className="page-stack">
@@ -410,18 +474,79 @@ function EventsPage({ onOpenEvent, registeredEvents }) {
         eyebrow="STUDENT PORTAL / EVENTS"
         title="Events & activities"
         description="Browse upcoming campus events, workshops, talks, and student activities."
-        action={<span className="intro-chip"><CalendarDays size={14} /> {eventCount} events this week</span>}
       />
-      <div className="section-toolbar events-toolbar">
-        <div><p className="section-overline">CAMPUS CALENDAR</p><h2>Upcoming events <span className="heading-count">{String(filteredEvents.length).padStart(2, '0')}</span></h2></div>
-        <div className="filter-pills" role="group" aria-label="Filter events">
-          {filters.map((filter) => <button key={filter} className={`filter-pill${activeFilter === filter ? ' filter-pill-active' : ''}`} onClick={() => setActiveFilter(filter)}>{filter}</button>)}
+
+      <section className="events-glance" aria-labelledby="events-glance-title">
+        <div className="events-glance-heading">
+          <div><p className="section-overline">QUICK SUMMARY</p><h2 id="events-glance-title">At a glance</h2></div>
+          <span className="events-glance-period">UPCOMING THIS WEEK</span>
         </div>
-      </div>
-      <div className="event-page-grid">
-        {filteredEvents.map((event) => <EventCard key={event.id} event={event} onOpen={() => onOpenEvent(event)} registered={registeredEvents.has(event.id)} />)}
-        {filteredEvents.length === 0 && <EmptyState title="No events found" copy="Try another category or check back later." />}
-      </div>
+        <div className="events-glance-grid">
+          <article className="events-glance-item">
+            <span className="events-glance-icon tone-lime"><CalendarDays size={17} /></span>
+            <span className="events-glance-copy"><small>THIS WEEK</small><strong>{weekEvents.length} events</strong></span>
+          </article>
+          <button className="events-glance-item events-glance-next" onClick={() => onOpenEvent(nextEvent)} aria-label={`View details for ${nextEvent.title}`}>
+            <span className="events-glance-icon tone-cyan"><Activity size={17} /></span>
+            <span className="events-glance-copy"><small>NEXT UP · {getEventDayLabel(nextEvent.dayOffset)} · {nextEvent.time}</small><strong>{nextEvent.title}</strong></span>
+            <ArrowUpRight size={15} className="events-glance-arrow" />
+          </button>
+          <article className="events-glance-item">
+            <span className="events-glance-icon tone-violet"><CheckCheck size={17} /></span>
+            <span className="events-glance-copy"><small>YOUR RSVPS</small><strong>{registeredEvents.size} registered</strong></span>
+          </article>
+        </div>
+      </section>
+
+      <section className="events-control-section" aria-label="Browse events">
+        <div className="section-toolbar events-toolbar">
+          <div><p className="section-overline">CAMPUS CALENDAR</p><h2>Upcoming events <span className="heading-count">{String(visibleCount).padStart(2, '0')}</span></h2></div>
+          <div className="events-view-switch" role="group" aria-label="Choose event view">
+            <button type="button" className={`events-view-button${eventView === 'all' ? ' events-view-button-active' : ''}`} aria-pressed={eventView === 'all'} onClick={() => setEventView('all')}><CalendarDays size={15} /><span>All events</span><small>{eventList.length}</small></button>
+            <button type="button" className={`events-view-button${eventView === 'groups' ? ' events-view-button-active' : ''}`} aria-pressed={eventView === 'groups'} onClick={() => { setEventView('groups'); setExpandedGroup(''); }}><UsersRound size={15} /><span>By club</span><small>{groups.length}</small></button>
+          </div>
+        </div>
+
+        {eventView === 'all' && (
+          <div className="events-filter-row">
+            <span className="events-filter-label">FILTER BY TYPE</span>
+            <div className="filter-pills" role="group" aria-label="Filter events by type">
+              {filters.map((filter) => <button key={filter} className={`filter-pill${activeFilter === filter ? ' filter-pill-active' : ''}`} onClick={() => setActiveFilter(filter)}>{filter}</button>)}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {eventView === 'all' ? (
+        <div className="event-page-grid">
+          {filteredEvents.map((event) => <EventCard key={event.id} event={event} onOpen={() => onOpenEvent(event)} registered={registeredEvents.has(event.id)} />)}
+          {filteredEvents.length === 0 && <EmptyState title="No events found" copy="Try another category or check back later." />}
+        </div>
+      ) : (
+        <div className="club-event-groups">
+          {groups.map((group) => {
+            const isExpanded = expandedGroup === group.name;
+            return (
+              <section className={`club-event-group${isExpanded ? ' club-event-group-expanded' : ''}`} key={group.name}>
+                <button className="club-event-group-toggle" aria-expanded={isExpanded} onClick={() => setExpandedGroup(isExpanded ? '' : group.name)}>
+                  <span className={`club-event-group-icon tone-${group.events[0].color}`}><UsersRound size={18} /></span>
+                  <span className="club-event-group-copy"><small>CLUB / STUDENT GROUP</small><strong>{group.name}</strong></span>
+                  <span className="club-event-group-count">{group.events.length} {group.events.length === 1 ? 'event' : 'events'}</span>
+                  <ChevronDown size={17} className="club-event-group-chevron" />
+                </button>
+                {isExpanded && (
+                  <div className="club-event-group-content">
+                    <div className="event-page-grid">
+                      {group.events.map((event) => <EventCard key={event.id} event={event} onOpen={() => onOpenEvent(event)} registered={registeredEvents.has(event.id)} />)}
+                    </div>
+                  </div>
+                )}
+              </section>
+            );
+          })}
+        </div>
+      )}
+
       <div className="page-note"><ShieldCheck size={15} /><span>Event dates and venues are sample data. Use your institution’s verified event feed before launch.</span></div>
     </div>
   );
@@ -447,10 +572,11 @@ function EventCard({ event, onOpen, registered }) {
   );
 }
 
-function ClubsPage({ clubsJoined, onToggleClub, onOpenClub }) {
+function ClubsPage({ clubsJoined, onToggleClub, onOpenClub, eventList, onPostEvent }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState('All groups');
   const categories = ['All groups', 'Technology', 'Arts & culture', 'Ideas & debate', 'Environment', 'Music'];
+  const upcomingClubEvents = eventList.filter((event) => event.dayOffset >= 0).slice(0, 3);
   const filteredClubs = clubs.filter((club) => {
     const matchesCategory = activeCategory === 'All groups' || club.category === activeCategory;
     const query = searchTerm.trim().toLowerCase();
@@ -460,7 +586,25 @@ function ClubsPage({ clubsJoined, onToggleClub, onOpenClub }) {
 
   return (
     <div className="page-stack">
-      <PageIntro eyebrow="STUDENT PORTAL / STUDENT GROUPS" title="Clubs & student groups" description="Browse student-led clubs, interests, and upcoming activities." action={<span className="intro-chip"><UsersRound size={14} /> {clubs.length} groups</span>} />
+      <PageIntro eyebrow="STUDENT PORTAL / STUDENT GROUPS" title="Clubs & student groups" description="Browse student-led clubs, interests, and upcoming activities." action={<button className="button button-outline club-post-event" onClick={onPostEvent}><CalendarDays size={15} /> Post a club event</button>} />
+      <section className="club-glance" aria-labelledby="club-glance-title">
+        <div className="club-glance-heading"><div><p className="section-overline">AT A GLANCE</p><h2 id="club-glance-title">Nearest club events</h2></div></div>
+        <div className="club-glance-columns" aria-hidden="true"><span>Date</span><span>Club</span><span>Event</span><span>Location</span></div>
+        <div className="club-glance-list">
+          {upcomingClubEvents.map((event) => {
+            const date = getDateParts(event.dayOffset);
+            return (
+              <article className="club-glance-row" key={event.id}>
+                <span className="club-glance-date" data-label="DATE">{getEventDayLabel(event.dayOffset)} · {date.day} {date.month} · {event.time}</span>
+                <span className="club-glance-club" data-label="CLUB">{event.host}</span>
+                <span className="club-glance-title" data-label="EVENT">{event.title}</span>
+                <span className="club-glance-location" data-label="LOCATION">{event.venue}</span>
+              </article>
+            );
+          })}
+          {upcomingClubEvents.length === 0 && <p className="club-glance-empty">No upcoming club events.</p>}
+        </div>
+      </section>
       <div className="directory-toolbar">
         <div className="filter-pills filter-pills-wrap" role="group" aria-label="Filter clubs">
           {categories.map((category) => <button key={category} className={`filter-pill${activeCategory === category ? ' filter-pill-active' : ''}`} onClick={() => setActiveCategory(category)}>{category}</button>)}
@@ -638,6 +782,111 @@ function FeedbackModal({ onClose, showToast }) {
   );
 }
 
+function PostClubEventModal({ onClose, onPublish }) {
+  const [clubId, setClubId] = useState(clubs[0]?.id || '');
+  const [title, setTitle] = useState('');
+  const [venue, setVenue] = useState('');
+  const [startsAt, setStartsAt] = useState(() => {
+    const start = new Date();
+    start.setDate(start.getDate() + 1);
+    start.setHours(17, 0, 0, 0);
+    return toDateTimeInputValue(start);
+  });
+  const [endsAt, setEndsAt] = useState(() => {
+    const end = new Date();
+    end.setDate(end.getDate() + 1);
+    end.setHours(18, 0, 0, 0);
+    return toDateTimeInputValue(end);
+  });
+  const [timeError, setTimeError] = useState('');
+  const club = clubs.find((item) => item.id === clubId);
+  const minStart = toDateTimeInputValue(new Date());
+
+  const handleStartChange = (value) => {
+    setStartsAt(value);
+    setTimeError('');
+    if (value && endsAt && new Date(endsAt) <= new Date(value)) {
+      const nextEnd = new Date(value);
+      nextEnd.setHours(nextEnd.getHours() + 1);
+      setEndsAt(toDateTimeInputValue(nextEnd));
+    }
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    const start = new Date(startsAt);
+    const end = new Date(endsAt);
+    if (!club || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || end <= start) {
+      setTimeError('Choose an end time after the event starts.');
+      return;
+    }
+
+    onPublish({
+      id: `club-event-${Date.now()}`,
+      title: title.trim(),
+      category: 'Club event',
+      summary: `A new event posted by ${club.name}.`,
+      host: club.name,
+      time: start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      venue: venue.trim(),
+      dayOffset: getDayOffsetForDate(start),
+      duration: formatDuration(start, end),
+      color: club.color,
+      icon: club.icon,
+      seats: 'Open to all',
+      startsAt: start.toISOString(),
+      endsAt: end.toISOString(),
+      postedAt: new Date().toISOString(),
+    });
+  };
+
+  return (
+    <Modal onClose={onClose}>
+      <div className="feedback-modal-icon post-event-modal-icon"><CalendarDays size={22} /></div>
+      <div className="modal-main feedback-modal-main">
+        <div className="modal-eyebrow">CLUB EVENTS</div>
+        <h2>Post a club event</h2>
+        <p className="modal-description">Publish the event details. A notice will stay visible until the event ends.</p>
+        <form onSubmit={handleSubmit} className="feedback-form post-event-form">
+          <label>CLUB / STUDENT GROUP<select value={clubId} onChange={(event) => setClubId(event.target.value)} required>{clubs.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label>EVENT TITLE<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Event title" required maxLength={90} /></label>
+          <div className="post-event-time-grid">
+            <label>STARTS<input type="datetime-local" value={startsAt} min={minStart} onChange={(event) => handleStartChange(event.target.value)} required /></label>
+            <label>ENDS<input type="datetime-local" value={endsAt} min={startsAt || minStart} onChange={(event) => { setEndsAt(event.target.value); setTimeError(''); }} required /></label>
+          </div>
+          {timeError && <p className="post-event-error" role="alert">{timeError}</p>}
+          <label>LOCATION<input value={venue} onChange={(event) => setVenue(event.target.value)} placeholder="Building or campus location" required maxLength={100} /></label>
+          <div className="modal-footer">
+            <span className="modal-seat"><ShieldCheck size={14} /> Saved in this browser only</span>
+            <button className="button button-lime" type="submit">Publish event <ArrowRight size={15} /></button>
+          </div>
+        </form>
+      </div>
+    </Modal>
+  );
+}
+
+function PostedEventPopup({ event, onDismiss }) {
+  const start = new Date(event.startsAt);
+  const end = new Date(event.endsAt);
+  const dateLabel = start.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+  const endLabel = `${end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} · ${end.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}`;
+
+  return (
+    <aside className="posted-event-popup" role="status" aria-live="polite">
+      <span className="posted-event-popup-icon"><CalendarDays size={18} /></span>
+      <div className="posted-event-popup-copy">
+        <small>NEW CLUB EVENT</small>
+        <strong>{event.title}</strong>
+        <span>{event.host} · {dateLabel} · {event.time}</span>
+        <span>{event.venue}</span>
+        <em>Visible until {endLabel}</em>
+      </div>
+      <button className="icon-button posted-event-dismiss" onClick={onDismiss} aria-label="Dismiss this event notice"><X size={16} /></button>
+    </aside>
+  );
+}
+
 function Modal({ children, onClose }) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -668,21 +917,29 @@ function App() {
   const [clubsJoined, setClubsJoined] = useStoredSet('campustwin-joined-clubs', ['first-principles']);
   const [registeredEvents, setRegisteredEvents] = useStoredSet('campustwin-registered-events', []);
   const [readAnnouncements, setReadAnnouncements] = useStoredSet('campustwin-read-notices', ['open-studio']);
+  const [postedEvents, setPostedEvents] = useStoredList('campustwin-posted-club-events');
+  const [dismissedEventNotices, setDismissedEventNotices] = useStoredSet('campustwin-dismissed-club-event-notices', []);
+  const [clockNow, setClockNow] = useState(Date.now());
   const searchWrapRef = useRef(null);
   const toastTimeoutRef = useRef(null);
 
+  const eventList = useMemo(() => {
+    const livePostedEvents = postedEvents.filter((event) => Number.isFinite(Date.parse(event.endsAt)) && Date.parse(event.endsAt) > clockNow);
+    return [...events, ...livePostedEvents].sort((first, second) => getEventStartTimestamp(first) - getEventStartTimestamp(second));
+  }, [postedEvents, clockNow]);
+  const activeEventNotice = postedEvents.find((event) => Date.parse(event.endsAt) > clockNow && !dismissedEventNotices.has(event.id));
   const unreadCount = announcements.filter((item) => !readAnnouncements.has(item.id)).length;
   const searchResults = useMemo(() => {
     const query = searchValue.trim().toLowerCase();
     if (!query) return [];
     const allResults = [
-      ...events.map((item) => ({ id: item.id, title: item.title, detail: item.summary, type: 'event', typeLabel: `Event · ${item.category}`, icon: item.icon, color: item.color, item })),
+      ...eventList.map((item) => ({ id: item.id, title: item.title, detail: item.summary, type: 'event', typeLabel: `Event · ${item.category}`, icon: item.icon, color: item.color, item })),
       ...clubs.map((item) => ({ id: item.id, title: item.name, detail: `${item.category} ${item.description}`, type: 'club', typeLabel: `Community · ${item.category}`, icon: item.icon, color: item.color, item })),
       ...directory.map((item) => ({ id: item.id, title: item.name, detail: `${item.category} ${item.detail}`, type: 'directory', typeLabel: `Directory · ${item.category}`, icon: item.icon, color: item.color, item })),
       ...announcements.map((item) => ({ id: item.id, title: item.title, detail: `${item.category} ${item.body}`, type: 'notice', typeLabel: `Announcement · ${item.category}`, icon: item.icon, color: item.color, item })),
     ];
     return allResults.filter((item) => `${item.title} ${item.detail}`.toLowerCase().includes(query)).slice(0, 6);
-  }, [searchValue]);
+  }, [eventList, searchValue]);
 
   const showToast = useCallback((message) => {
     setToast(message);
@@ -691,6 +948,14 @@ function App() {
   }, []);
 
   useEffect(() => () => window.clearTimeout(toastTimeoutRef.current), []);
+
+  useEffect(() => {
+    const endTimes = postedEvents.map((event) => Date.parse(event.endsAt)).filter((endTime) => Number.isFinite(endTime) && endTime > clockNow);
+    if (!endTimes.length) return undefined;
+    const nextEndTime = Math.min(...endTimes);
+    const timer = window.setTimeout(() => setClockNow(Date.now()), Math.min(nextEndTime - clockNow, 2147483647));
+    return () => window.clearTimeout(timer);
+  }, [postedEvents, clockNow]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -767,14 +1032,28 @@ function App() {
   const openFeedback = useCallback(() => setModal({ type: 'feedback' }), []);
   const openEvent = useCallback((event) => setModal({ type: 'event', item: event }), []);
   const openClub = useCallback((club) => setModal({ type: 'club', item: club }), []);
+  const openPostEvent = useCallback(() => setModal({ type: 'post-event' }), []);
+  const publishClubEvent = useCallback((event) => {
+    setPostedEvents((current) => [event, ...current]);
+    setDismissedEventNotices((current) => {
+      const next = new Set(current);
+      next.delete(event.id);
+      return next;
+    });
+    setClockNow(Date.now());
+    setModal(null);
+  }, [setDismissedEventNotices, setPostedEvents]);
+  const dismissEventNotice = useCallback((id) => {
+    setDismissedEventNotices((current) => new Set([...current, id]));
+  }, [setDismissedEventNotices]);
   const closeModal = useCallback(() => setModal(null), []);
 
   let currentPage;
-  if (activePage === 'events') currentPage = <EventsPage onOpenEvent={openEvent} registeredEvents={registeredEvents} />;
-  else if (activePage === 'clubs') currentPage = <ClubsPage clubsJoined={clubsJoined} onToggleClub={(club) => { const wasJoined = clubsJoined.has(club.id); toggleClub(club); if (!wasJoined) showToast(`Your membership status for ${club.name} was updated.`); }} onOpenClub={openClub} />;
+  if (activePage === 'events') currentPage = <EventsPage onOpenEvent={openEvent} registeredEvents={registeredEvents} eventList={eventList} />;
+  else if (activePage === 'clubs') currentPage = <ClubsPage clubsJoined={clubsJoined} onToggleClub={(club) => { const wasJoined = clubsJoined.has(club.id); toggleClub(club); if (!wasJoined) showToast(`Your membership status for ${club.name} was updated.`); }} onOpenClub={openClub} eventList={eventList} onPostEvent={openPostEvent} />;
   else if (activePage === 'directory') currentPage = <DirectoryPage />;
   else if (activePage === 'announcements') currentPage = <AnnouncementsPage readAnnouncements={readAnnouncements} onReadNotice={setNoticeRead} onAllRead={markAllRead} onOpenNotice={(item) => setModal({ type: 'notice', item })} />;
-  else currentPage = <OverviewPage navigate={navigate} onOpenEvent={openEvent} onOpenNotice={openNotice} registeredEvents={registeredEvents} readAnnouncements={readAnnouncements} />;
+  else currentPage = <OverviewPage navigate={navigate} onOpenEvent={openEvent} onOpenNotice={openNotice} registeredEvents={registeredEvents} readAnnouncements={readAnnouncements} eventList={eventList} />;
 
   return (
     <div className="app-shell">
@@ -804,8 +1083,10 @@ function App() {
       {modal?.type === 'club' && <ClubModal club={modal.item} joined={clubsJoined.has(modal.item.id)} onToggle={toggleClub} onClose={closeModal} showToast={showToast} />}
       {modal?.type === 'notice' && <NoticeModal item={modal.item} onClose={closeModal} />}
       {modal?.type === 'feedback' && <FeedbackModal onClose={closeModal} showToast={showToast} />}
+      {modal?.type === 'post-event' && <PostClubEventModal onClose={closeModal} onPublish={publishClubEvent} />}
+      {!modal && activeEventNotice && <PostedEventPopup event={activeEventNotice} onDismiss={() => dismissEventNotice(activeEventNotice.id)} />}
 
-      {toast && <div className="toast-message" role="status"><span className="toast-check"><Check size={14} /></span>{toast}</div>}
+      {toast && <div className={`toast-message${activeEventNotice ? ' toast-message-with-event' : ''}`} role="status"><span className="toast-check"><Check size={14} /></span>{toast}</div>}
     </div>
   );
 }
