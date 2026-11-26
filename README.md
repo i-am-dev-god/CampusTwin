@@ -6,11 +6,12 @@ CampusTwin is an interactive smart-campus concept, starting with the part that w
 
 - Responsive CampusTwin dashboard with an understated cyberpunk accent system.
 - The opening dashboard prioritizes fixed Quick access links and useful next-step information over recommendations.
-- Overview, Events, Clubs & communities, Campus directory, and Campus bulletin pages.
+- Overview, Events, Clubs & communities, My Class, Campus directory, and Campus bulletin pages.
 - Event summaries with an “At a glance” panel, event-type filters, and a collapsible club-wise view.
-- Clubs page includes a compact upcoming-event glance and a demo club-event posting flow. New-event notices remain visible until the scheduled end time or user dismissal.
+- My Class focuses on a visually prioritized personal deadline list and a section-only class-representative update board. Campus announcements remain separate and are identified as campus-wide notices. A local Student / Class Representative switch previews role-specific controls; it is not authentication or access control. New class-representative posts are highlighted for the student view until marked read.
+- Clubs page includes a compact upcoming-event glance. Club-event publishing controls are withheld until club leader/core-member profiles and authorization are designed; existing local event notices remain until their scheduled end time or user dismissal.
 - Search across sample campus content, event detail/RSVP, club join state, unread notices, and a feedback/idea form.
-- Sample activity and club-event posts are stored only in the current browser. No campus map, GPS, shared live data, accounts, or backend is connected.
+- Personal selections, task completion, and preview posts are stored only in the current browser. No campus map, GPS, shared live data, accounts, or backend is connected.
 - The recommended map-free shortlist and later phases are in [`docs/feature-scope.md`](docs/feature-scope.md).
 
 ## Run locally

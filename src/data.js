@@ -288,10 +288,40 @@ export const announcements = [
   },
 ];
 
+export const classDeadlines = [
+  { id: 'graph-worksheet', course: 'Data Structures', title: 'Graph traversal worksheet', dayOffset: 1, dueTime: '5:00 PM', kind: 'ASSIGNMENT' },
+  { id: 'database-lab', course: 'Database Systems', title: 'Submit lab queries', dayOffset: 3, dueTime: '11:59 PM', kind: 'LAB' },
+  { id: 'web-prototype', course: 'Web Engineering', title: 'Prototype review', dayOffset: 5, dueTime: '2:00 PM', kind: 'REVIEW' },
+];
+
+export const initialClassUpdates = [
+  {
+    id: 'lab-room-change',
+    category: 'ROOM CHANGE',
+    title: 'Friday’s database lab is in Lab 3',
+    body: 'The session still starts at 1:30 PM. Use the north entrance while the main lab is being serviced.',
+    time: 'Today · 9:10 AM',
+    author: 'Class representative',
+    icon: 'Building2',
+    color: 'orange',
+  },
+  {
+    id: 'project-check-in',
+    category: 'CLASS REMINDER',
+    title: 'Bring your project brief to Thursday’s tutorial',
+    body: 'We will use the first ten minutes to pair up for peer feedback. A draft is enough.',
+    time: 'Yesterday · 4:25 PM',
+    author: 'Class representative',
+    icon: 'BookOpen',
+    color: 'cyan',
+  },
+];
+
 export const pageLabels = {
   overview: 'Dashboard',
   events: 'Events & activities',
   clubs: 'Clubs & student groups',
+  class: 'My class',
   directory: 'Campus directory',
   announcements: 'Announcements',
 };
