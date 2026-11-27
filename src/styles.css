@@ -1664,3 +1664,38 @@ button.bulletin-item:active:not(:disabled):not(.sidebar-scrim) { transform: none
 @media (prefers-reduced-motion: reduce) {
   .class-update-alert, .notification-row-class, .class-update-card { transition: none !important; }
 }
+
+.class-update-card.class-update-pinned {
+  margin-top: 4px;
+  padding: 14px 14px 14px 12px;
+  border: 1px solid #dfe8d3;
+  border-left: 4px solid #92aa6c;
+  border-radius: 12px;
+  background: linear-gradient(110deg, #fbfdf6, #f2f7ea 80%, #eef4e7);
+  box-shadow: 0 5px 16px rgba(50, 70, 42, .055);
+}
+.class-update-card.class-update-pinned.class-update-unread { padding-left: 12px; border-left-width: 4px; }
+.class-update-pinned-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 5px; color: #4f6b39; background: #eaf1dc; font-size: 7px; font-weight: 800; letter-spacing: .55px; }
+.class-update-pinned-pill svg { flex: 0 0 auto; }
+.class-update-copy > .class-update-pin-expiry { color: #667851; font-size: 8px; font-weight: 700; }
+.class-update-form .class-update-pin-toggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  margin-top: 15px;
+  padding: 11px 12px;
+  border: 1px solid #e1e7d8;
+  border-radius: 10px;
+  color: #55674b;
+  background: #f8faf3;
+  cursor: pointer;
+  letter-spacing: 0;
+}
+.class-update-form .class-update-pin-toggle > input[type="checkbox"] { width: 16px; height: 16px; min-height: 16px; flex: 0 0 auto; margin: 0; padding: 0; accent-color: #829b5c; }
+.class-update-form .class-update-pin-toggle > span { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 3px; }
+.class-update-form .class-update-pin-toggle strong { color: #43553c; font-size: 10px; font-weight: 700; letter-spacing: 0; text-transform: none; }
+.class-update-form .class-update-pin-toggle small { color: #7d8977; font-size: 9px; font-weight: 400; line-height: 1.4; letter-spacing: 0; text-transform: none; }
+.class-update-form .class-update-pin-until { margin-top: 12px; }
+.class-update-pin-help { margin: 6px 0 0; color: #7d8977; font-size: 9px; line-height: 1.4; letter-spacing: 0; }
+.class-update-pin-error { margin: 7px 0 0; color: #a15446; font-size: 9px; line-height: 1.45; letter-spacing: 0; }

@@ -35,6 +35,7 @@ import {
   MessageSquareText,
   Music2,
   Palette,
+  Pin,
   Search,
   Send,
   ShieldCheck,
@@ -72,6 +73,9 @@ const iconMap = {
   Star,
   Utensils,
 };
+
+const MIN_CLASS_PIN_DURATION_MS = 24 * 60 * 60 * 1000;
+const MAX_CLASS_PIN_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
 
 const navSections = [
   {
@@ -877,7 +881,7 @@ function AnnouncementCard({ item, isRead, onClick }) {
   );
 }
 
-function ClassPage({ roleMode, classUpdates, unreadClassUpdateIds, completedTasks, onToggleTask, onPostUpdate, onRemoveUpdate, onMarkUpdatesRead }) {
+function ClassPage({ roleMode, classUpdates, unreadClassUpdateIds, completedTasks, onToggleTask, onPostUpdate, onRemoveUpdate, onMarkUpdatesRead, clockNow }) {
   const orderedDeadlines = [...classDeadlines].sort((first, second) => first.dayOffset - second.dayOffset);
   const nextDeadline = orderedDeadlines.find((task) => !completedTasks.has(task.id));
   const nextDeadlineDate = nextDeadline ? getDateParts(nextDeadline.dayOffset) : null;
@@ -886,6 +890,8 @@ function ClassPage({ roleMode, classUpdates, unreadClassUpdateIds, completedTask
     .sort((first, second) => Number(completedTasks.has(first.id)) - Number(completedTasks.has(second.id)) || first.dayOffset - second.dayOffset);
   const openDeadlineCount = orderedDeadlines.filter((task) => !completedTasks.has(task.id)).length;
   const unreadUpdateCount = classUpdates.filter((item) => unreadClassUpdateIds.has(item.id)).length;
+  const activePinnedUpdate = classUpdates.find((item) => Number.isFinite(Date.parse(item.pinnedUntil)) && Date.parse(item.pinnedUntil) > clockNow);
+  const regularUpdates = activePinnedUpdate ? classUpdates.filter((item) => item.id !== activePinnedUpdate.id) : classUpdates;
   const isRepresentative = roleMode === 'class-representative';
 
   return (
@@ -949,7 +955,8 @@ function ClassPage({ roleMode, classUpdates, unreadClassUpdateIds, completedTask
           {!isRepresentative && unreadUpdateCount > 0 && <button className="class-update-mark-read" onClick={onMarkUpdatesRead}>Mark all read</button>}
         </div>
         <div className="class-update-list">
-          {classUpdates.map((item) => <ClassUpdateCard key={item.id} item={item} isUnread={unreadClassUpdateIds.has(item.id)} canManage={isRepresentative && item.isLocal} onRemove={() => onRemoveUpdate(item.id)} />)}
+          {activePinnedUpdate && <ClassUpdateCard key={activePinnedUpdate.id} item={activePinnedUpdate} isUnread={unreadClassUpdateIds.has(activePinnedUpdate.id)} isPinned canManage={isRepresentative && activePinnedUpdate.isLocal} onRemove={() => onRemoveUpdate(activePinnedUpdate.id)} />}
+          {regularUpdates.map((item) => <ClassUpdateCard key={item.id} item={item} isUnread={unreadClassUpdateIds.has(item.id)} isPinned={false} canManage={isRepresentative && item.isLocal} onRemove={() => onRemoveUpdate(item.id)} />)}
           {classUpdates.length === 0 && <p className="class-empty">No class-rep updates yet.</p>}
         </div>
       </section>
@@ -957,11 +964,19 @@ function ClassPage({ roleMode, classUpdates, unreadClassUpdateIds, completedTask
   );
 }
 
-function ClassUpdateCard({ item, isUnread, canManage, onRemove }) {
+function ClassUpdateCard({ item, isUnread, isPinned = false, canManage, onRemove }) {
+  const pinnedUntilLabel = isPinned
+    ? new Date(item.pinnedUntil).toLocaleString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+    : '';
+
   return (
-    <article className={`class-update-card${isUnread ? ' class-update-unread' : ''}`}>
+    <article className={`class-update-card${isUnread ? ' class-update-unread' : ''}${isPinned ? ' class-update-pinned' : ''}`} aria-label={isPinned ? `Pinned class update, expires ${pinnedUntilLabel}` : undefined}>
       <span className={`class-update-icon tone-${item.color || 'lime'}`}><Icon name={item.icon || 'Megaphone'} size={17} /></span>
-      <div className="class-update-copy"><div className="class-update-meta"><span>{item.category}</span>{isUnread && <b className="class-update-new-pill">NEW</b>}<i />{item.time}</div><h3>{item.title}</h3><p>{item.body}</p><small>From {item.author}</small></div>
+      <div className="class-update-copy">
+        <div className="class-update-meta"><span>{item.category}</span>{isPinned && <b className="class-update-pinned-pill"><Pin size={11} /> PINNED</b>}{isUnread && <b className="class-update-new-pill">NEW</b>}<i />{item.time}</div>
+        <h3>{item.title}</h3><p>{item.body}</p><small>From {item.author}</small>
+        {isPinned && <small className="class-update-pin-expiry">Pinned until {pinnedUntilLabel}</small>}
+      </div>
       {canManage && <button className="class-update-remove" onClick={onRemove} aria-label={`Remove your update: ${item.title}`} title="Remove preview update"><X size={15} /></button>}
     </article>
   );
@@ -971,9 +986,42 @@ function PostClassUpdateModal({ onClose, onPublish }) {
   const [category, setCategory] = useState('Class notice');
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [pinImportantUpdate, setPinImportantUpdate] = useState(false);
+  const [pinUntil, setPinUntil] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinWindow] = useState(() => {
+    const openedAt = Date.now();
+    const minPinUntilTime = Math.ceil((openedAt + MIN_CLASS_PIN_DURATION_MS) / 60000) * 60000;
+    return {
+      min: toDateTimeInputValue(new Date(minPinUntilTime)),
+      max: toDateTimeInputValue(new Date(openedAt + MAX_CLASS_PIN_DURATION_MS)),
+    };
+  });
+
+  const handlePinToggle = (checked) => {
+    setPinImportantUpdate(checked);
+    setPinError('');
+    if (!checked) setPinUntil('');
+  };
 
   const handleSubmit = (event) => {
     event.preventDefault();
+    let pinnedUntil = null;
+    if (pinImportantUpdate) {
+      const expiry = new Date(pinUntil);
+      const expiryTime = expiry.getTime();
+      const now = Date.now();
+      if (!pinUntil || !Number.isFinite(expiryTime) || expiryTime < now + MIN_CLASS_PIN_DURATION_MS) {
+        setPinError('Choose an expiry at least 1 day from now.');
+        return;
+      }
+      if (expiryTime > now + MAX_CLASS_PIN_DURATION_MS) {
+        setPinError('Pinned updates can stay pinned for up to 30 days.');
+        return;
+      }
+      pinnedUntil = expiry.toISOString();
+    }
+
     const now = new Date();
     const icon = category === 'Schedule change' ? 'CalendarDays' : category === 'Assessment reminder' ? 'BookOpen' : 'Megaphone';
     const color = category === 'Schedule change' ? 'orange' : category === 'Assessment reminder' ? 'violet' : 'lime';
@@ -987,6 +1035,7 @@ function PostClassUpdateModal({ onClose, onPublish }) {
       icon,
       color,
       isLocal: true,
+      pinnedUntil,
     });
   };
 
@@ -1001,7 +1050,18 @@ function PostClassUpdateModal({ onClose, onPublish }) {
           <label>UPDATE TYPE<select value={category} onChange={(event) => setCategory(event.target.value)}><option>Class notice</option><option>Schedule change</option><option>Assessment reminder</option></select></label>
           <label>HEADLINE<input value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Keep the headline specific" maxLength={90} required /></label>
           <label>DETAILS<textarea value={body} onChange={(event) => setBody(event.target.value)} placeholder="What does your class need to know?" rows={4} maxLength={360} required /></label>
-          <div className="modal-footer"><span className="modal-seat"><ShieldCheck size={14} /> Saved in this browser only</span><button className="button button-lime" type="submit" disabled={!title.trim() || !body.trim()}>Post update <ArrowRight size={15} /></button></div>
+          <label className="class-update-pin-toggle">
+            <input type="checkbox" checked={pinImportantUpdate} onChange={(event) => handlePinToggle(event.target.checked)} aria-describedby="class-update-pin-help" />
+            <span><strong>Pin as important</strong><small id="class-update-pin-help">Optional · one active pin per section; a new pin replaces the current one.</small></span>
+          </label>
+          {pinImportantUpdate && (
+            <>
+              <label className="class-update-pin-until">PIN UNTIL<input type="datetime-local" value={pinUntil} min={minPinUntil} max={maxPinUntil} onChange={(event) => { setPinUntil(event.target.value); setPinError(''); }} required /></label>
+              <p className="class-update-pin-help">Expiry is required · choose a time 1–30 days from now.</p>
+            </>
+          )}
+          {pinError && <p className="class-update-pin-error" role="alert">{pinError}</p>}
+          <div className="modal-footer"><span className="modal-seat"><ShieldCheck size={14} /> Saved in this browser only</span><button className="button button-lime" type="submit" disabled={!title.trim() || !body.trim() || (pinImportantUpdate && !pinUntil)}>Post update <ArrowRight size={15} /></button></div>
         </form>
       </div>
     </Modal>
@@ -1245,7 +1305,7 @@ function Modal({ children, onClose, origin }) {
   );
 }
 
-function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegister, showToast }) {
+function OriginCardExpansion({ modal, onClose, isClosing, closeAnimationDuration, animationRef, isRegistered, onRegister, showToast }) {
   const element = modal.origin?.element;
   const registerTarget = modal.type === 'event' && element?.isConnected
     ? element.querySelector('.event-card-footer') || element
@@ -1339,6 +1399,7 @@ function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegist
     };
     const finalRadius = window.getComputedStyle(element).borderRadius;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || typeof element.animate !== 'function') {
+      animationRef.current = null;
       setPhase('open');
       window.requestAnimationFrame(focusCloseButton);
       return restoreSource;
@@ -1349,9 +1410,10 @@ function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegist
     const scaleX = origin.width / targetWidth;
     const scaleY = origin.height / targetHeight;
     const animation = element.animate([
-      { transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: origin.borderRadius || '14px', opacity: .98 },
+      { transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: origin.borderRadius || '14px', opacity: 1 },
       { transformOrigin: 'top left', transform: 'translate3d(0, 0, 0) scale(1, 1)', borderRadius: finalRadius, opacity: 1 },
     ], { duration: 620, easing: 'cubic-bezier(.22, .72, .2, 1)', fill: 'both' });
+    animationRef.current = animation;
     animation.onfinish = () => {
       setPhase('open');
       window.requestAnimationFrame(focusCloseButton);
@@ -1359,9 +1421,10 @@ function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegist
 
     return () => {
       animation.onfinish = null;
+      if (animationRef.current === animation) animationRef.current = null;
       restoreSource();
     };
-  }, [element, modal.item, modal.origin]);
+  }, [animationRef, element, modal.item, modal.origin]);
 
   useLayoutEffect(() => {
     if (!element?.isConnected) return;
@@ -1388,7 +1451,7 @@ function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegist
 
   return (
     <>
-      <div className="modal-backdrop modal-backdrop-origin" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} />
+      <div className="modal-backdrop modal-backdrop-origin" style={isClosing ? { animationDuration: `${closeAnimationDuration}ms` } : undefined} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} />
       {element?.isConnected && createPortal(
         <button className="modal-close icon-button origin-card-close" type="button" onClick={onClose} aria-label="Close dialog"><X size={18} /></button>,
         element,
@@ -1422,7 +1485,9 @@ function App() {
   const [postedEvents, setPostedEvents] = useStoredList('campustwin-posted-club-events');
   const [dismissedEventNotices, setDismissedEventNotices] = useStoredSet('campustwin-dismissed-club-event-notices', []);
   const [clockNow, setClockNow] = useState(Date.now());
+  const [modalCloseAnimationDuration, setModalCloseAnimationDuration] = useState(240);
   const searchWrapRef = useRef(null);
+  const originCardAnimationRef = useRef(null);
   const toastTimeoutRef = useRef(null);
   const modalCloseTimerRef = useRef(null);
   const modalCloseLockRef = useRef(false);
@@ -1440,6 +1505,8 @@ function App() {
   }, [setClassUpdates]);
 
   const showModal = useCallback((nextModal) => {
+    originCardAnimationRef.current?.cancel();
+    originCardAnimationRef.current = null;
     document.querySelector('.modal-shell')?.getAnimations?.().forEach((animation) => animation.cancel());
     window.clearTimeout(modalCloseTimerRef.current);
     modalCloseTimerRef.current = null;
@@ -1451,24 +1518,44 @@ function App() {
   const closeModal = useCallback(() => {
     if (!modal || modalCloseLockRef.current) return;
     const shell = document.querySelector('.modal-shell');
+    const originElement = modal.origin?.element;
+    const isExpandedSource = Boolean(originElement?.classList.contains('origin-card-expanded'));
+
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
       shell?.getAnimations?.().forEach((animation) => animation.cancel());
+      originCardAnimationRef.current = null;
       setModal(null);
       setIsModalClosing(false);
       return;
     }
 
     let closeDelay = 260;
-    if (shell?.animate && modal.origin?.width && modal.origin?.height) {
-      const originElement = modal.origin.element;
-      const isExpandedSource = originElement?.classList.contains('origin-card-expanded');
-      const currentOrigin = isExpandedSource ? modal.origin : originElement?.isConnected ? getCardRect(originElement) || modal.origin : modal.origin;
+    let closeAnimationDuration = 240;
+    const sourceAnimation = isExpandedSource ? originCardAnimationRef.current : null;
+
+    if (sourceAnimation && sourceAnimation.playState !== 'idle' && typeof sourceAnimation.reverse === 'function') {
+      const rawCurrentTime = sourceAnimation.currentTime;
+      const currentTime = typeof rawCurrentTime === 'number' ? rawCurrentTime : Number.NaN;
+      const playbackRate = Math.abs(sourceAnimation.playbackRate) || 1;
+      const animationDuration = Number(sourceAnimation.effect?.getTiming?.().duration);
+      const reverseDuration = Number.isFinite(currentTime)
+        ? Math.max(0, currentTime) / playbackRate
+        : Number.isFinite(animationDuration) ? animationDuration / playbackRate : 620;
+      sourceAnimation.onfinish = null;
+      sourceAnimation.reverse();
+      closeAnimationDuration = reverseDuration;
+      closeDelay = reverseDuration + 30;
+    } else if (shell?.animate && modal.origin?.width && modal.origin?.height) {
+      const currentOrigin = isExpandedSource
+        ? modal.origin
+        : originElement?.isConnected ? getCardRect(originElement) || modal.origin : modal.origin;
       const currentRect = shell.getBoundingClientRect();
       const currentStyle = window.getComputedStyle(shell);
       const currentRadius = currentStyle.borderRadius;
       const parsedOpacity = Number.parseFloat(currentStyle.opacity);
       const currentOpacity = Number.isFinite(parsedOpacity) ? parsedOpacity : 1;
       shell.getAnimations().forEach((animation) => animation.cancel());
+      if (isExpandedSource) originCardAnimationRef.current = null;
       const layoutRect = shell.getBoundingClientRect();
       if (layoutRect.width && layoutRect.height) {
         const translateX = currentOrigin.left - layoutRect.left;
@@ -1480,19 +1567,21 @@ function App() {
         const startScaleX = currentRect.width / layoutRect.width;
         const startScaleY = currentRect.height / layoutRect.height;
         const originRadius = currentOrigin.borderRadius || '14px';
-        const closeDuration = 520;
+        closeAnimationDuration = 520;
         shell.animate([
           { transformOrigin: 'top left', transform: `translate3d(${startX}px, ${startY}px, 0) scale(${startScaleX}, ${startScaleY})`, borderRadius: currentRadius, opacity: currentOpacity },
           { offset: .82, transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: originRadius, opacity: .98 },
           { transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: originRadius, opacity: 0 },
-        ], { duration: closeDuration, easing: 'cubic-bezier(.38, 0, .22, 1)', fill: 'both' });
-        closeDelay = closeDuration + 30;
+        ], { duration: closeAnimationDuration, easing: 'cubic-bezier(.38, 0, .22, 1)', fill: 'both' });
+        closeDelay = closeAnimationDuration + 30;
       }
     } else {
       shell?.getAnimations?.().forEach((animation) => animation.cancel());
+      originCardAnimationRef.current = null;
     }
 
     modalCloseLockRef.current = true;
+    setModalCloseAnimationDuration(closeAnimationDuration);
     setIsModalClosing(true);
     modalCloseTimerRef.current = window.setTimeout(() => {
       setModal(null);
@@ -1535,12 +1624,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const endTimes = postedEvents.map((event) => Date.parse(event.endsAt)).filter((endTime) => Number.isFinite(endTime) && endTime > clockNow);
+    const endTimes = [
+      ...postedEvents.map((event) => Date.parse(event.endsAt)),
+      ...classUpdates.map((item) => Date.parse(item.pinnedUntil)),
+    ].filter((endTime) => Number.isFinite(endTime) && endTime > clockNow);
     if (!endTimes.length) return undefined;
     const nextEndTime = Math.min(...endTimes);
     const timer = window.setTimeout(() => setClockNow(Date.now()), Math.min(nextEndTime - clockNow, 2147483647));
     return () => window.clearTimeout(timer);
-  }, [postedEvents, clockNow]);
+  }, [classUpdates, postedEvents, clockNow]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -1643,10 +1735,29 @@ function App() {
   const openPostEvent = useCallback(() => showModal({ type: 'post-event' }), [showModal]);
   const openPostClassUpdate = useCallback(() => showModal({ type: 'class-update' }), [showModal]);
   const publishClassUpdate = useCallback((update) => {
-    setClassUpdates((current) => [update, ...current]);
+    if (roleMode !== 'class-representative') {
+      showToast('Only the class representative can post updates in this preview.');
+      return;
+    }
+
+    if (update.pinnedUntil) {
+      const expiry = Date.parse(update.pinnedUntil);
+      const now = Date.now();
+      if (!Number.isFinite(expiry) || expiry < now + MIN_CLASS_PIN_DURATION_MS || expiry > now + MAX_CLASS_PIN_DURATION_MS) {
+        showToast('A pinned update needs an expiry 1–30 days from now.');
+        return;
+      }
+    }
+
+    setClassUpdates((current) => {
+      const updates = update.pinnedUntil
+        ? current.map((item) => item.pinnedUntil ? { ...item, pinnedUntil: null } : item)
+        : current;
+      return [update, ...updates];
+    });
     closeModal();
-    showToast('Class update added to this browser preview.');
-  }, [closeModal, setClassUpdates, showToast]);
+    showToast(update.pinnedUntil ? 'Pinned class update added to this browser preview.' : 'Class update added to this browser preview.');
+  }, [closeModal, roleMode, setClassUpdates, showToast]);
   const removeClassUpdate = useCallback((id) => {
     setClassUpdates((current) => current.filter((item) => item.id !== id));
     showToast('Class update removed from this browser preview.');
@@ -1669,7 +1780,7 @@ function App() {
   let currentPage;
   if (activePage === 'events') currentPage = <EventsPage onOpenEvent={openEvent} registeredEvents={registeredEvents} eventList={eventList} />;
   else if (activePage === 'clubs') currentPage = <ClubsPage clubsJoined={clubsJoined} onToggleClub={(club) => { const wasJoined = clubsJoined.has(club.id); toggleClub(club); if (!wasJoined) showToast(`Your membership status for ${club.name} was updated.`); }} onOpenClub={openClub} onOpenEvent={openEvent} eventList={eventList} onPostEvent={canPostClubEvents ? openPostEvent : undefined} />;
-  else if (activePage === 'class') currentPage = <ClassPage roleMode={roleMode} classUpdates={classUpdates} unreadClassUpdateIds={unreadClassUpdateIds} completedTasks={completedClassTasks} onToggleTask={toggleClassTask} onPostUpdate={openPostClassUpdate} onRemoveUpdate={removeClassUpdate} onMarkUpdatesRead={markAllClassUpdatesRead} />;
+  else if (activePage === 'class') currentPage = <ClassPage roleMode={roleMode} classUpdates={classUpdates} unreadClassUpdateIds={unreadClassUpdateIds} completedTasks={completedClassTasks} onToggleTask={toggleClassTask} onPostUpdate={openPostClassUpdate} onRemoveUpdate={removeClassUpdate} onMarkUpdatesRead={markAllClassUpdatesRead} clockNow={clockNow} />;
   else if (activePage === 'directory') currentPage = <DirectoryPage />;
   else if (activePage === 'announcements') currentPage = <AnnouncementsPage readAnnouncements={readAnnouncements} onReadNotice={setNoticeRead} onAllRead={markAllRead} onOpenNotice={(item, origin) => showModal({ type: 'notice', item, origin })} />;
   else currentPage = <OverviewPage navigate={navigate} onOpenEvent={openEvent} onOpenNotice={openNotice} registeredEvents={registeredEvents} readAnnouncements={readAnnouncements} eventList={eventList} unreadClassUpdates={unreadClassUpdates} />;
@@ -1705,7 +1816,7 @@ function App() {
         </main>
       </div>
 
-      {usesSharedCardExpansion && <OriginCardExpansion modal={modal} onClose={closeModal} isClosing={isModalClosing} isRegistered={registeredEvents.has(modal.item.id)} onRegister={toggleRegistration} showToast={showToast} />}
+      {usesSharedCardExpansion && <OriginCardExpansion modal={modal} onClose={closeModal} isClosing={isModalClosing} closeAnimationDuration={modalCloseAnimationDuration} animationRef={originCardAnimationRef} isRegistered={registeredEvents.has(modal.item.id)} onRegister={toggleRegistration} showToast={showToast} />}
       {modal?.type === 'event' && !usesSharedCardExpansion && <EventModal event={modal.item} isRegistered={registeredEvents.has(modal.item.id)} onRegister={toggleRegistration} onClose={closeModal} showToast={showToast} />}
       {modal?.type === 'club' && !usesSharedCardExpansion && <ClubModal club={modal.item} joined={clubsJoined.has(modal.item.id)} onToggle={toggleClub} onClose={closeModal} showToast={showToast} />}
       {modal?.type === 'notice' && !usesSharedCardExpansion && <NoticeModal item={modal.item} onClose={closeModal} />}
