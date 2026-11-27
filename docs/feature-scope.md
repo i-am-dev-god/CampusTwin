@@ -29,7 +29,7 @@ These are the best low-dependency picks from the feature catalogue for a hackath
 | 3 | Multilingual Support | Translate the fixed interface and approved FAQs into Telugu/Hindi; validate with fluent speakers. |
 | 3 | QR Code Navigation | A QR code may open a building information page without showing a map. Useful as an easy later demo. |
 
-The current UI implements the first dashboard slice: **Overview, Events, Clubs, Campus Directory, Campus Bulletin, My Class / Section A, search, local RSVP/join/read states, and local preview forms**. My Class updates and the student/class-representative preview role are stored only in the browser; posting does not notify other students and is not authenticated. A representative-preview post may optionally be pinned for 1–30 days, with a required expiry and only one active pin at a time. Interactions are local to the browser; this is not connected to a college account or database.
+The current UI implements the first dashboard slice: **Overview, Events, Clubs, Campus Directory, Campus Bulletin, My Class / Section A, search, local RSVP/join/read states, local preview forms, and a chronological Update Log**. My Class updates and the student/class-representative preview role are stored only in the browser; posting does not notify other students and is not authenticated. A representative-preview post may optionally be pinned for 1–30 days, with a required expiry and only one active pin at a time. Interactions are local to the browser; this is not connected to a college account or database.
 
 ## Defer — needs a map, positioning, or spatial data
 

@@ -102,6 +102,15 @@ const navSections = [
   },
 ];
 
+const updateLogEntries = [
+  { number: '01', title: 'CampusTwin portal', summary: 'Dashboard · Events · Clubs · Directory · Bulletin', detail: 'GitHub Pages deployment enabled.', reference: 'PR #1', href: 'https://github.com/i-am-dev-god/CampusTwin/pull/1' },
+  { number: '02', title: 'Event & club discovery', summary: 'At-a-glance cards · Filters · By-club view', detail: 'Local event posts · Responsive motion.', reference: 'PR #2', href: 'https://github.com/i-am-dev-god/CampusTwin/pull/2' },
+  { number: '03', title: 'My Class & card details', summary: 'Section A deadlines · Student/CR preview', detail: 'Local updates · Unread state · Card expansion.', reference: 'PR #3', href: 'https://github.com/i-am-dev-god/CampusTwin/pull/3' },
+  { number: '04', title: 'In-place card reflow', summary: 'Event · Club · Notice cards expand in place', detail: 'Original content stays visible · Cleaner headers.', reference: 'PR #4', href: 'https://github.com/i-am-dev-god/CampusTwin/pull/4' },
+  { number: '05', title: 'Closing & expiring pins', summary: 'Reverse-close animation · Optional 1–30 day pin', detail: 'One active Section A pin · Expiry enforced.', reference: 'PR #5', href: 'https://github.com/i-am-dev-god/CampusTwin/pull/5' },
+  { number: '06', title: 'This release', summary: 'Slide-out update log · Smooth page transitions', detail: 'Fixed pin-form crash · Hardened saved pin data.', reference: 'Latest' },
+];
+
 function useStoredSet(key, fallback) {
   const [value, setValue] = useState(() => {
     try {
@@ -123,12 +132,12 @@ function useStoredSet(key, fallback) {
   return [value, setValue];
 }
 
-function useStoredList(key, fallback = []) {
+function useStoredList(key, fallback = [], normalize = (list) => list) {
   const [value, setValue] = useState(() => {
     try {
       const saved = window.localStorage.getItem(key);
       const parsed = saved ? JSON.parse(saved) : fallback;
-      return Array.isArray(parsed) ? parsed : fallback;
+      return normalize(Array.isArray(parsed) ? parsed : fallback);
     } catch {
       return fallback;
     }
@@ -143,6 +152,25 @@ function useStoredList(key, fallback = []) {
   }, [key, value]);
 
   return [value, setValue];
+}
+
+function getClassPinExpiry(item) {
+  if (!item || typeof item !== 'object' || typeof item.pinnedUntil !== 'string') return Number.NaN;
+  return Date.parse(item.pinnedUntil);
+}
+
+function normalizeClassUpdates(updates) {
+  if (!Array.isArray(updates)) return initialClassUpdates;
+  const now = Date.now();
+  let hasActivePin = false;
+  return updates
+    .filter((item) => item && typeof item === 'object' && !Array.isArray(item) && typeof item.id === 'string' && typeof item.title === 'string' && typeof item.body === 'string')
+    .map((item) => {
+      const expiry = getClassPinExpiry(item);
+      const keepPin = !hasActivePin && Number.isFinite(expiry) && expiry > now && expiry <= now + MAX_CLASS_PIN_DURATION_MS;
+      if (keepPin) hasActivePin = true;
+      return { ...item, pinnedUntil: keepPin ? new Date(expiry).toISOString() : null };
+    });
 }
 
 function useStoredValue(key, fallback, validValues) {
@@ -298,7 +326,7 @@ function SidebarPlan({ event, joinedClubs, registeredCount, navigate, onOpenEven
   );
 }
 
-function Sidebar({ activePage, navigate, unreadCount, unreadClassUpdateCount, isOpen, onClose, onFeedback, eventList, registeredEvents, clubsJoined, roleMode, onRoleChange, onOpenEvent, onOpenClub }) {
+function Sidebar({ activePage, navigate, unreadCount, unreadClassUpdateCount, isOpen, onClose, onFeedback, onOpenUpdateLog, isUpdateLogOpen, updateLogTriggerRef, eventList, registeredEvents, clubsJoined, roleMode, onRoleChange, onOpenEvent, onOpenClub }) {
   const [isRoleMenuOpen, setIsRoleMenuOpen] = useState(false);
   const roleSwitcherRef = useRef(null);
   const CurrentRoleIcon = roleMode === 'class-representative' ? ShieldCheck : GraduationCap;
@@ -391,6 +419,11 @@ function Sidebar({ activePage, navigate, unreadCount, unreadClassUpdateCount, is
             onOpenEvent={(event) => { onClose(); onOpenEvent(event); }}
             onOpenClub={(club) => { onClose(); onOpenClub(club); }}
           />
+          <button ref={updateLogTriggerRef} className="sidebar-help sidebar-update-log" type="button" onClick={() => { onClose(); onOpenUpdateLog(); }} aria-haspopup="dialog" aria-expanded={isUpdateLogOpen} aria-controls="update-log-panel">
+            <Activity size={17} />
+            <span>Update log</span>
+            <ArrowUpRight size={14} className="help-arrow" />
+          </button>
           <button className="sidebar-help" onClick={() => { onClose(); onFeedback(); }}>
             <LifeBuoy size={17} />
             <span>Feedback</span>
@@ -404,6 +437,82 @@ function Sidebar({ activePage, navigate, unreadCount, unreadClassUpdateCount, is
         </div>
       </aside>
     </>
+  );
+}
+
+function UpdateLogDrawer({ isOpen, onClose, triggerRef }) {
+  const drawerRef = useRef(null);
+  const closeButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const previousPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+    const computedPaddingRight = Number.parseFloat(window.getComputedStyle(document.body).paddingRight) || 0;
+    document.body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${computedPaddingRight + scrollbarWidth}px`;
+    closeButtonRef.current?.focus({ preventScroll: true });
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = [...(drawerRef.current?.querySelectorAll('button:not([disabled]), a[href]') || [])];
+      if (!focusable.length) {
+        event.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
+      triggerRef.current?.focus({ preventScroll: true });
+    };
+  }, [isOpen, onClose, triggerRef]);
+
+  return (
+    <div className={`update-log-layer${isOpen ? ' update-log-layer-open' : ''}`} aria-hidden={!isOpen}>
+      <button className="update-log-backdrop" type="button" tabIndex={-1} aria-label="Close update log" onClick={onClose} />
+      <aside id="update-log-panel" ref={drawerRef} className={`update-log-drawer${isOpen ? ' update-log-drawer-open' : ''}`} role="dialog" aria-modal={isOpen ? 'true' : undefined} aria-labelledby="update-log-title">
+        <header className="update-log-header">
+          <div>
+            <span className="update-log-kicker"><Activity size={13} /> CAMPUS TWIN · RELEASE NOTES</span>
+            <h2 id="update-log-title">Update log</h2>
+            <p>Changes, oldest first.</p>
+          </div>
+          <button ref={closeButtonRef} className="icon-button update-log-close" type="button" onClick={onClose} aria-label="Close update log" tabIndex={isOpen ? 0 : -1}><X size={18} /></button>
+        </header>
+        <div className="update-log-list" aria-label="CampusTwin changes in chronological order">
+          {updateLogEntries.map((entry) => (
+            <article className="update-log-entry" key={entry.number}>
+              <span className="update-log-marker" aria-hidden="true">{entry.number}</span>
+              <div className="update-log-entry-copy">
+                <div className="update-log-entry-meta"><span>UPDATE {entry.number}</span>{entry.href ? <a href={entry.href} target="_blank" rel="noreferrer">{entry.reference}<ArrowUpRight size={11} /></a> : <span className="update-log-current">{entry.reference}</span>}</div>
+                <h3>{entry.title}</h3>
+                <p>{entry.summary}</p>
+                <small>{entry.detail}</small>
+              </div>
+            </article>
+          ))}
+        </div>
+        <footer className="update-log-footer"><ShieldCheck size={14} /><span>Preview history only · class posts stay in this browser.</span></footer>
+      </aside>
+    </div>
   );
 }
 
@@ -890,7 +999,7 @@ function ClassPage({ roleMode, classUpdates, unreadClassUpdateIds, completedTask
     .sort((first, second) => Number(completedTasks.has(first.id)) - Number(completedTasks.has(second.id)) || first.dayOffset - second.dayOffset);
   const openDeadlineCount = orderedDeadlines.filter((task) => !completedTasks.has(task.id)).length;
   const unreadUpdateCount = classUpdates.filter((item) => unreadClassUpdateIds.has(item.id)).length;
-  const activePinnedUpdate = classUpdates.find((item) => Number.isFinite(Date.parse(item.pinnedUntil)) && Date.parse(item.pinnedUntil) > clockNow);
+  const activePinnedUpdate = classUpdates.find((item) => Number.isFinite(getClassPinExpiry(item)) && getClassPinExpiry(item) > clockNow);
   const regularUpdates = activePinnedUpdate ? classUpdates.filter((item) => item.id !== activePinnedUpdate.id) : classUpdates;
   const isRepresentative = roleMode === 'class-representative';
 
@@ -1056,7 +1165,7 @@ function PostClassUpdateModal({ onClose, onPublish }) {
           </label>
           {pinImportantUpdate && (
             <>
-              <label className="class-update-pin-until">PIN UNTIL<input type="datetime-local" value={pinUntil} min={minPinUntil} max={maxPinUntil} onChange={(event) => { setPinUntil(event.target.value); setPinError(''); }} required /></label>
+              <label className="class-update-pin-until">PIN UNTIL<input type="datetime-local" value={pinUntil} min={pinWindow.min} max={pinWindow.max} onChange={(event) => { setPinUntil(event.target.value); setPinError(''); }} required /></label>
               <p className="class-update-pin-help">Expiry is required · choose a time 1–30 days from now.</p>
             </>
           )}
@@ -1474,19 +1583,21 @@ function App() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [modal, setModal] = useState(null);
   const [isModalClosing, setIsModalClosing] = useState(false);
+  const [isUpdateLogOpen, setIsUpdateLogOpen] = useState(false);
   const [toast, setToast] = useState('');
   const [clubsJoined, setClubsJoined] = useStoredSet('campustwin-joined-clubs', ['first-principles']);
   const [registeredEvents, setRegisteredEvents] = useStoredSet('campustwin-registered-events', []);
   const [readAnnouncements, setReadAnnouncements] = useStoredSet('campustwin-read-notices', ['open-studio']);
   const [roleMode, setRoleMode] = useStoredValue('campustwin-role-mode', 'student', ['student', 'class-representative']);
   const [completedClassTasks, setCompletedClassTasks] = useStoredSet('campustwin-completed-class-tasks', []);
-  const [classUpdates, setClassUpdates] = useStoredList('campustwin-class-updates', initialClassUpdates);
+  const [classUpdates, setClassUpdates] = useStoredList('campustwin-class-updates', initialClassUpdates, normalizeClassUpdates);
   const [seenClassUpdates, setSeenClassUpdates] = useStoredSet('campustwin-seen-class-updates', initialClassUpdates.map((item) => item.id));
   const [postedEvents, setPostedEvents] = useStoredList('campustwin-posted-club-events');
   const [dismissedEventNotices, setDismissedEventNotices] = useStoredSet('campustwin-dismissed-club-event-notices', []);
   const [clockNow, setClockNow] = useState(Date.now());
   const [modalCloseAnimationDuration, setModalCloseAnimationDuration] = useState(240);
   const searchWrapRef = useRef(null);
+  const updateLogTriggerRef = useRef(null);
   const originCardAnimationRef = useRef(null);
   const toastTimeoutRef = useRef(null);
   const modalCloseTimerRef = useRef(null);
@@ -1591,6 +1702,14 @@ function App() {
     }, closeDelay);
   }, [modal]);
 
+  const openUpdateLog = useCallback(() => {
+    setIsNotificationsOpen(false);
+    setSearchOpen(false);
+    setIsMobileNavOpen(false);
+    setIsUpdateLogOpen(true);
+  }, []);
+  const closeUpdateLog = useCallback(() => setIsUpdateLogOpen(false), []);
+
   const eventList = useMemo(() => {
     const livePostedEvents = postedEvents.filter((event) => Number.isFinite(Date.parse(event.endsAt)) && Date.parse(event.endsAt) > clockNow);
     return [...events, ...livePostedEvents].sort((first, second) => getEventStartTimestamp(first) - getEventStartTimestamp(second));
@@ -1626,7 +1745,7 @@ function App() {
   useEffect(() => {
     const endTimes = [
       ...postedEvents.map((event) => Date.parse(event.endsAt)),
-      ...classUpdates.map((item) => Date.parse(item.pinnedUntil)),
+      ...classUpdates.map((item) => getClassPinExpiry(item)),
     ].filter((endTime) => Number.isFinite(endTime) && endTime > clockNow);
     if (!endTimes.length) return undefined;
     const nextEndTime = Math.min(...endTimes);
@@ -1741,7 +1860,7 @@ function App() {
     }
 
     if (update.pinnedUntil) {
-      const expiry = Date.parse(update.pinnedUntil);
+      const expiry = getClassPinExpiry(update);
       const now = Date.now();
       if (!Number.isFinite(expiry) || expiry < now + MIN_CLASS_PIN_DURATION_MS || expiry > now + MAX_CLASS_PIN_DURATION_MS) {
         showToast('A pinned update needs an expiry 1–30 days from now.');
@@ -1750,9 +1869,11 @@ function App() {
     }
 
     setClassUpdates((current) => {
+      const safeCurrent = normalizeClassUpdates(current);
+      const now = Date.now();
       const updates = update.pinnedUntil
-        ? current.map((item) => item.pinnedUntil ? { ...item, pinnedUntil: null } : item)
-        : current;
+        ? safeCurrent.map((item) => getClassPinExpiry(item) > now ? { ...item, pinnedUntil: null } : item)
+        : safeCurrent;
       return [update, ...updates];
     });
     closeModal();
@@ -1791,7 +1912,7 @@ function App() {
 
   return (
     <div className={`app-shell${isModalClosing ? ' app-shell-modal-closing' : ''}${isOriginModalClosing ? ' app-shell-modal-origin-closing' : ''}${usesSharedCardExpansion ? ' app-shell-modal-origin-active' : ''}`}>
-      <Sidebar activePage={activePage} navigate={navigate} unreadCount={unreadCount} unreadClassUpdateCount={unreadClassUpdates.length} isOpen={isMobileNavOpen} onClose={() => setIsMobileNavOpen(false)} onFeedback={openFeedback} eventList={eventList} registeredEvents={registeredEvents} clubsJoined={clubsJoined} roleMode={roleMode} onRoleChange={setRoleMode} onOpenEvent={openEvent} onOpenClub={openClub} />
+      <Sidebar activePage={activePage} navigate={navigate} unreadCount={unreadCount} unreadClassUpdateCount={unreadClassUpdates.length} isOpen={isMobileNavOpen} onClose={() => setIsMobileNavOpen(false)} onFeedback={openFeedback} onOpenUpdateLog={openUpdateLog} isUpdateLogOpen={isUpdateLogOpen} updateLogTriggerRef={updateLogTriggerRef} eventList={eventList} registeredEvents={registeredEvents} clubsJoined={clubsJoined} roleMode={roleMode} onRoleChange={setRoleMode} onOpenEvent={openEvent} onOpenClub={openClub} />
       <div className="workspace">
         <Topbar
           activePage={activePage}
@@ -1824,6 +1945,7 @@ function App() {
       {modal?.type === 'post-event' && <PostClubEventModal onClose={closeModal} onPublish={publishClubEvent} />}
       {modal?.type === 'class-update' && <PostClassUpdateModal onClose={closeModal} onPublish={publishClassUpdate} />}
       {!modal && activeEventNotice && <PostedEventPopup event={activeEventNotice} onDismiss={() => dismissEventNotice(activeEventNotice.id)} />}
+      <UpdateLogDrawer isOpen={isUpdateLogOpen} onClose={closeUpdateLog} triggerRef={updateLogTriggerRef} />
 
       {toast && <div className={`toast-message${activeEventNotice ? ' toast-message-with-event' : ''}`} role="status"><span className="toast-check"><Check size={14} /></span>{toast}</div>}
     </div>
