@@ -1436,8 +1436,11 @@ function OriginCardExpansion({ modal, onClose, isClosing, closeAnimationDuration
 
   useLayoutEffect(() => {
     if (!element?.isConnected) return undefined;
-    const origin = modal.origin || getCardRect(element);
-    if (!origin?.width || !origin?.height) return undefined;
+    const origin = modal.restoreOrigin?.width && modal.restoreOrigin?.height
+      ? modal.restoreOrigin
+      : modal.origin?.width && modal.origin?.height ? modal.origin : getCardRect(element);
+    const openingOrigin = modal.origin?.width && modal.origin?.height ? modal.origin : origin;
+    if (!origin?.width || !origin?.height || !openingOrigin?.width || !openingOrigin?.height) return undefined;
 
     const styleProperties = ['position', 'left', 'top', 'width', 'height', 'zIndex', 'maxHeight', 'maxWidth', 'overflow', 'minHeight', 'minWidth', 'transformOrigin'];
     const previousStyles = Object.fromEntries(styleProperties.map((property) => [property, element.style[property]]));
@@ -1514,12 +1517,12 @@ function OriginCardExpansion({ modal, onClose, isClosing, closeAnimationDuration
       return restoreSource;
     }
 
-    const translateX = origin.left - targetLeft;
-    const translateY = origin.top - targetTop;
-    const scaleX = origin.width / targetWidth;
-    const scaleY = origin.height / targetHeight;
+    const translateX = openingOrigin.left - targetLeft;
+    const translateY = openingOrigin.top - targetTop;
+    const scaleX = openingOrigin.width / targetWidth;
+    const scaleY = openingOrigin.height / targetHeight;
     const animation = element.animate([
-      { transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: origin.borderRadius || '14px', opacity: 1 },
+      { transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: openingOrigin.borderRadius || '14px', opacity: 1 },
       { transformOrigin: 'top left', transform: 'translate3d(0, 0, 0) scale(1, 1)', borderRadius: finalRadius, opacity: 1 },
     ], { duration: 620, easing: 'cubic-bezier(.22, .72, .2, 1)', fill: 'both' });
     animationRef.current = animation;
@@ -1533,7 +1536,7 @@ function OriginCardExpansion({ modal, onClose, isClosing, closeAnimationDuration
       if (animationRef.current === animation) animationRef.current = null;
       restoreSource();
     };
-  }, [animationRef, element, modal.item, modal.origin]);
+  }, [animationRef, element, modal.item, modal.origin, modal.restoreOrigin]);
 
   useLayoutEffect(() => {
     if (!element?.isConnected) return;
@@ -1577,6 +1580,7 @@ function OriginCardExpansion({ modal, onClose, isClosing, closeAnimationDuration
 
 function App() {
   const [activePage, setActivePage] = useState('overview');
+  const [isPageTransitionSettled, setIsPageTransitionSettled] = useState(false);
   const [searchValue, setSearchValue] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
@@ -1623,7 +1627,16 @@ function App() {
     modalCloseTimerRef.current = null;
     modalCloseLockRef.current = false;
     setIsModalClosing(false);
-    setModal(nextModal);
+
+    let modalToShow = nextModal;
+    const originElement = nextModal?.origin?.element;
+    if (originElement) {
+      originElement.closest('.page-transition')?.classList.add('page-transition-settled');
+      setIsPageTransitionSettled(true);
+      const measuredOrigin = originElement.isConnected ? getCardRect(originElement) : null;
+      if (measuredOrigin?.width && measuredOrigin?.height) modalToShow = { ...nextModal, restoreOrigin: measuredOrigin };
+    }
+    setModal(modalToShow);
   }, []);
 
   const closeModal = useCallback(() => {
@@ -1642,9 +1655,21 @@ function App() {
 
     let closeDelay = 260;
     let closeAnimationDuration = 240;
+    let closeAnimation = null;
     const sourceAnimation = isExpandedSource ? originCardAnimationRef.current : null;
+    const originPlaceholder = isExpandedSource && originElement?.previousElementSibling?.classList.contains('origin-card-placeholder')
+      ? originElement.previousElementSibling
+      : null;
+    const measuredOrigin = originPlaceholder ? getCardRect(originPlaceholder) : originElement?.isConnected ? getCardRect(originElement) : null;
+    const restoreOrigin = modal.restoreOrigin || modal.origin;
+    const currentOrigin = isExpandedSource
+      ? { ...(restoreOrigin || measuredOrigin || modal.origin), borderRadius: restoreOrigin?.borderRadius || modal.origin?.borderRadius || '14px' }
+      : measuredOrigin || modal.origin;
+    const originMatchesOpening = isExpandedSource && modal.origin && currentOrigin
+      && ['left', 'top', 'width', 'height'].every((key) => Math.abs(currentOrigin[key] - modal.origin[key]) < 0.5)
+      && (!currentOrigin.borderRadius || !modal.origin.borderRadius || currentOrigin.borderRadius === modal.origin.borderRadius);
 
-    if (sourceAnimation && sourceAnimation.playState !== 'idle' && typeof sourceAnimation.reverse === 'function') {
+    if (sourceAnimation && sourceAnimation.playState !== 'idle' && typeof sourceAnimation.reverse === 'function' && originMatchesOpening) {
       const rawCurrentTime = sourceAnimation.currentTime;
       const currentTime = typeof rawCurrentTime === 'number' ? rawCurrentTime : Number.NaN;
       const playbackRate = Math.abs(sourceAnimation.playbackRate) || 1;
@@ -1654,12 +1679,10 @@ function App() {
         : Number.isFinite(animationDuration) ? animationDuration / playbackRate : 620;
       sourceAnimation.onfinish = null;
       sourceAnimation.reverse();
+      closeAnimation = sourceAnimation;
       closeAnimationDuration = reverseDuration;
       closeDelay = reverseDuration + 30;
     } else if (shell?.animate && modal.origin?.width && modal.origin?.height) {
-      const currentOrigin = isExpandedSource
-        ? modal.origin
-        : originElement?.isConnected ? getCardRect(originElement) || modal.origin : modal.origin;
       const currentRect = shell.getBoundingClientRect();
       const currentStyle = window.getComputedStyle(shell);
       const currentRadius = currentStyle.borderRadius;
@@ -1679,10 +1702,10 @@ function App() {
         const startScaleY = currentRect.height / layoutRect.height;
         const originRadius = currentOrigin.borderRadius || '14px';
         closeAnimationDuration = 520;
-        shell.animate([
+        closeAnimation = shell.animate([
           { transformOrigin: 'top left', transform: `translate3d(${startX}px, ${startY}px, 0) scale(${startScaleX}, ${startScaleY})`, borderRadius: currentRadius, opacity: currentOpacity },
-          { offset: .82, transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: originRadius, opacity: .98 },
-          { transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: originRadius, opacity: 0 },
+          { offset: .82, transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: originRadius, opacity: isExpandedSource ? currentOpacity : .98 },
+          { transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: originRadius, opacity: isExpandedSource ? currentOpacity : 0 },
         ], { duration: closeAnimationDuration, easing: 'cubic-bezier(.38, 0, .22, 1)', fill: 'both' });
         closeDelay = closeAnimationDuration + 30;
       }
@@ -1694,12 +1717,20 @@ function App() {
     modalCloseLockRef.current = true;
     setModalCloseAnimationDuration(closeAnimationDuration);
     setIsModalClosing(true);
-    modalCloseTimerRef.current = window.setTimeout(() => {
+    const finishModalClose = () => {
+      if (!modalCloseLockRef.current) return;
       setModal(null);
       setIsModalClosing(false);
       modalCloseLockRef.current = false;
       modalCloseTimerRef.current = null;
-    }, closeDelay);
+    };
+    if (closeAnimation?.finished && typeof closeAnimation.finished.then === 'function') {
+      closeAnimation.finished.then(() => {
+        if (modalCloseLockRef.current) modalCloseTimerRef.current = window.setTimeout(finishModalClose, 30);
+      }).catch(() => {});
+    } else {
+      modalCloseTimerRef.current = window.setTimeout(finishModalClose, closeDelay);
+    }
   }, [modal]);
 
   const openUpdateLog = useCallback(() => {
@@ -1763,6 +1794,7 @@ function App() {
 
   const navigate = useCallback((page) => {
     const isPageChange = activePage !== page;
+    if (isPageChange) setIsPageTransitionSettled(false);
     setActivePage(page);
     setIsMobileNavOpen(false);
     setIsNotificationsOpen(false);
@@ -1835,9 +1867,11 @@ function App() {
   }, [navigate, setNoticeRead, showModal]);
 
   const chooseSearchResult = useCallback((result) => {
+    const targetPage = result.type === 'notice' ? 'announcements' : result.type === 'event' ? 'events' : result.type === 'club' ? 'clubs' : 'directory';
     setSearchOpen(false);
     setSearchValue('');
-    setActivePage(result.type === 'notice' ? 'announcements' : result.type === 'event' ? 'events' : result.type === 'club' ? 'clubs' : 'directory');
+    if (activePage !== targetPage) setIsPageTransitionSettled(false);
+    setActivePage(targetPage);
     setIsMobileNavOpen(false);
     if (result.type === 'event') showModal({ type: 'event', item: result.item });
     if (result.type === 'club') showModal({ type: 'club', item: result.item });
@@ -1846,7 +1880,7 @@ function App() {
       showModal({ type: 'notice', item: result.item });
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [setNoticeRead, showModal]);
+  }, [activePage, setNoticeRead, showModal]);
 
   const openFeedback = useCallback(() => showModal({ type: 'feedback' }), [showModal]);
   const openEvent = useCallback((event, origin) => showModal({ type: 'event', item: event, origin }), [showModal]);
@@ -1932,7 +1966,7 @@ function App() {
         {isNotificationsOpen && <NotificationPanel unreadCount={unreadCount} unreadClassUpdates={unreadClassUpdates} readAnnouncements={readAnnouncements} onOpenNotice={openNotice} onOpenClass={() => navigate('class')} onAllRead={markAllNotificationsRead} />}
         <main className="main-content" id="main-content">
           <div className="main-content-inner">
-            <div className="page-transition" key={activePage === 'class' ? `${activePage}-${roleMode}` : activePage}>{currentPage}</div>
+            <div className={`page-transition${isPageTransitionSettled ? ' page-transition-settled' : ''}`} key={activePage === 'class' ? `${activePage}-${roleMode}` : activePage} onAnimationEnd={(event) => { if (event.target === event.currentTarget && event.animationName === 'page-arrive') setIsPageTransitionSettled(true); }}>{currentPage}</div>
           </div>
         </main>
       </div>
