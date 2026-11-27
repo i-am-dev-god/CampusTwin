@@ -34,6 +34,9 @@ jobs:
         run: npm run build
         env:
           VITE_BASE_PATH: /CampusTwin/
+          # These are public browser-client values; all data access still depends on RLS.
+          VITE_SUPABASE_URL: https://rydahqolemnvoedkufpm.supabase.co
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_2flXs_bB7bjwAgtPKbB52w__qonWnRx
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

@@ -324,4 +324,5 @@ export const pageLabels = {
   class: 'My class',
   directory: 'Campus directory',
   announcements: 'Announcements',
+  updateLog: 'Update log',
 };
