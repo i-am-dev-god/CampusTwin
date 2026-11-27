@@ -29,7 +29,9 @@ import {
   LifeBuoy,
   Lightbulb,
   Laptop,
+  LogOut,
   Mail,
+  RotateCcw,
   Megaphone,
   Menu,
   MessageSquareText,
@@ -46,6 +48,10 @@ import {
   X,
 } from 'lucide-react';
 import { announcements, classDeadlines, clubs, directory, events, initialClassUpdates, pageLabels } from './data.js';
+import { updateLogEntries } from './updateLog.js';
+import AuthScreen from './auth/AuthScreen.jsx';
+import { getSupabaseClient, isSupabaseConfigured } from './auth/supabase.js';
+import { useAuthSession } from './auth/useAuthSession.js';
 
 const iconMap = {
   Activity,
@@ -76,6 +82,48 @@ const iconMap = {
 
 const MIN_CLASS_PIN_DURATION_MS = 24 * 60 * 60 * 1000;
 const MAX_CLASS_PIN_DURATION_MS = 30 * 24 * 60 * 60 * 1000;
+const developerModeStorageKey = 'campustwin-developer-mode-v1';
+const developerPreviewUser = {
+  id: 'campustwin-developer-preview',
+  user_metadata: { name: 'CampusTwin Developer' },
+};
+
+function loadDeveloperMode() {
+  try {
+    return window.localStorage.getItem(developerModeStorageKey) === 'enabled';
+  } catch {
+    return false;
+  }
+}
+
+function saveDeveloperMode(enabled) {
+  try {
+    if (enabled) window.localStorage.setItem(developerModeStorageKey, 'enabled');
+    else window.localStorage.removeItem(developerModeStorageKey);
+  } catch {
+    // Developer Mode still works for this tab if local storage is unavailable.
+  }
+}
+
+function getUserDisplayName(user) {
+  if (!user) return 'Demo student';
+  const metadata = user.user_metadata || {};
+  return metadata.name?.trim()
+    || metadata.full_name?.trim()
+    || metadata.user_name?.trim()
+    || user.email?.split('@')[0]
+    || 'CampusTwin member';
+}
+
+function getUserInitials(name) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length > 1) return `${parts[0][0]}${parts.at(-1)[0]}`.toUpperCase();
+  return (parts[0] || 'CT').slice(0, 2).toUpperCase();
+}
+
+function getScopedStorageKey(key, user) {
+  return user?.id ? `${key}:${user.id}` : key;
+}
 
 const navSections = [
   {
@@ -100,15 +148,10 @@ const navSections = [
       { id: 'announcements', label: 'Announcements', icon: Megaphone },
     ],
   },
-];
-
-const updateLogEntries = [
-  { number: '01', title: 'CampusTwin portal', summary: 'Dashboard · Events · Clubs · Directory · Bulletin', detail: 'GitHub Pages deployment enabled.', reference: 'PR #1', href: 'https://github.com/i-am-dev-god/CampusTwin/pull/1' },
-  { number: '02', title: 'Event & club discovery', summary: 'At-a-glance cards · Filters · By-club view', detail: 'Local event posts · Responsive motion.', reference: 'PR #2', href: 'https://github.com/i-am-dev-god/CampusTwin/pull/2' },
-  { number: '03', title: 'My Class & card details', summary: 'Section A deadlines · Student/CR preview', detail: 'Local updates · Unread state · Card expansion.', reference: 'PR #3', href: 'https://github.com/i-am-dev-god/CampusTwin/pull/3' },
-  { number: '04', title: 'In-place card reflow', summary: 'Event · Club · Notice cards expand in place', detail: 'Original content stays visible · Cleaner headers.', reference: 'PR #4', href: 'https://github.com/i-am-dev-god/CampusTwin/pull/4' },
-  { number: '05', title: 'Closing & expiring pins', summary: 'Reverse-close animation · Optional 1–30 day pin', detail: 'One active Section A pin · Expiry enforced.', reference: 'PR #5', href: 'https://github.com/i-am-dev-god/CampusTwin/pull/5' },
-  { number: '06', title: 'This release', summary: 'Slide-out update log · Smooth page transitions', detail: 'Fixed pin-form crash · Hardened saved pin data.', reference: 'Latest' },
+  {
+    label: 'CAMPUS TWIN',
+    items: [{ id: 'updateLog', label: 'Update log', icon: Activity }],
+  },
 ];
 
 function useStoredSet(key, fallback) {
@@ -326,7 +369,7 @@ function SidebarPlan({ event, joinedClubs, registeredCount, navigate, onOpenEven
   );
 }
 
-function Sidebar({ activePage, navigate, unreadCount, unreadClassUpdateCount, isOpen, onClose, onFeedback, onOpenUpdateLog, isUpdateLogOpen, updateLogTriggerRef, eventList, registeredEvents, clubsJoined, roleMode, onRoleChange, onOpenEvent, onOpenClub }) {
+function Sidebar({ activePage, navigate, unreadCount, unreadClassUpdateCount, isOpen, onClose, onFeedback, eventList, registeredEvents, clubsJoined, roleMode, onRoleChange, onOpenEvent, onOpenClub, profileName, profileEmail, profileInitials, onSignOut, developerMode, onRestartPreview }) {
   const [isRoleMenuOpen, setIsRoleMenuOpen] = useState(false);
   const roleSwitcherRef = useRef(null);
   const CurrentRoleIcon = roleMode === 'class-representative' ? ShieldCheck : GraduationCap;
@@ -367,7 +410,7 @@ function Sidebar({ activePage, navigate, unreadCount, unreadClassUpdateCount, is
         <div className="role-switcher-wrap" ref={roleSwitcherRef}>
           <button className="campus-switcher" type="button" onClick={() => setIsRoleMenuOpen((open) => !open)} aria-haspopup="menu" aria-expanded={isRoleMenuOpen} aria-controls="role-mode-menu">
             <span className="campus-switcher-icon"><CurrentRoleIcon size={17} /></span>
-            <span className="campus-switcher-copy"><small>VIEW AS · DEMO MODE</small><strong>{roleMode === 'class-representative' ? 'Class representative' : 'Student'}</strong></span>
+            <span className="campus-switcher-copy"><small>{developerMode ? 'DEVELOPER PREVIEW · LOCAL' : 'VIEW AS · DEMO MODE'}</small><strong>{roleMode === 'class-representative' ? 'Class representative' : 'Student'}</strong></span>
             <ChevronDown size={15} className={`campus-switcher-chevron${isRoleMenuOpen ? ' role-menu-chevron-open' : ''}`} />
           </button>
           {isRoleMenuOpen && (
@@ -383,7 +426,7 @@ function Sidebar({ activePage, navigate, unreadCount, unreadClassUpdateCount, is
                 <span className="role-menu-option-copy"><strong>Class representative</strong><small>Post and manage class updates</small></span>
                 {roleMode === 'class-representative' && <Check size={15} className="role-menu-option-check" />}
               </button>
-              <p className="role-menu-note">Preview role only · no login or access rules yet.</p>
+              <p className="role-menu-note">Demo role only · this does not grant real permissions.</p>
             </div>
           )}
         </div>
@@ -419,20 +462,19 @@ function Sidebar({ activePage, navigate, unreadCount, unreadClassUpdateCount, is
             onOpenEvent={(event) => { onClose(); onOpenEvent(event); }}
             onOpenClub={(club) => { onClose(); onOpenClub(club); }}
           />
-          <button ref={updateLogTriggerRef} className="sidebar-help sidebar-update-log" type="button" onClick={() => { onClose(); onOpenUpdateLog(); }} aria-haspopup="dialog" aria-expanded={isUpdateLogOpen} aria-controls="update-log-panel">
-            <Activity size={17} />
-            <span>Update log</span>
-            <ArrowUpRight size={14} className="help-arrow" />
-          </button>
           <button className="sidebar-help" onClick={() => { onClose(); onFeedback(); }}>
             <LifeBuoy size={17} />
             <span>Feedback</span>
             <ArrowUpRight size={14} className="help-arrow" />
           </button>
+          {developerMode && <button className="sidebar-restart-preview" type="button" onClick={() => { onClose(); onRestartPreview(); }}>
+            <RotateCcw size={16} />
+            <span>Start from start</span>
+          </button>}
           <div className="sidebar-user">
-            <div className="avatar avatar-sidebar">AR</div>
-            <div className="sidebar-user-copy"><strong>Aanya Rao</strong><small>Student · Year 2</small></div>
-            <span className="user-menu-button" aria-hidden="true"><ChevronDown size={15} /></span>
+            <div className="avatar avatar-sidebar">{profileInitials}</div>
+            <div className="sidebar-user-copy"><strong>{profileName}</strong><small>{profileEmail}</small></div>
+            {onSignOut && <button className="sidebar-signout" type="button" onClick={() => { onClose(); onSignOut(); }} aria-label={developerMode ? 'Exit developer mode' : 'Sign out'} title={developerMode ? 'Exit developer mode' : 'Sign out'}><LogOut size={15} /></button>}
           </div>
         </div>
       </aside>
@@ -440,83 +482,52 @@ function Sidebar({ activePage, navigate, unreadCount, unreadClassUpdateCount, is
   );
 }
 
-function UpdateLogDrawer({ isOpen, onClose, triggerRef }) {
-  const drawerRef = useRef(null);
-  const closeButtonRef = useRef(null);
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const previousOverflow = document.body.style.overflow;
-    const previousPaddingRight = document.body.style.paddingRight;
-    const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
-    const computedPaddingRight = Number.parseFloat(window.getComputedStyle(document.body).paddingRight) || 0;
-    document.body.style.overflow = 'hidden';
-    if (scrollbarWidth > 0) document.body.style.paddingRight = `${computedPaddingRight + scrollbarWidth}px`;
-    closeButtonRef.current?.focus({ preventScroll: true });
-
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (event.key !== 'Tab') return;
-      const focusable = [...(drawerRef.current?.querySelectorAll('button:not([disabled]), a[href]') || [])];
-      if (!focusable.length) {
-        event.preventDefault();
-        return;
-      }
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = previousOverflow;
-      document.body.style.paddingRight = previousPaddingRight;
-      triggerRef.current?.focus({ preventScroll: true });
-    };
-  }, [isOpen, onClose, triggerRef]);
+function UpdateLogPage() {
+  const updateCount = String(updateLogEntries.length).padStart(2, '0');
+  const changeCount = updateLogEntries.reduce((total, entry) => total + entry.changes.length, 0);
 
   return (
-    <div className={`update-log-layer${isOpen ? ' update-log-layer-open' : ''}`} aria-hidden={!isOpen}>
-      <button className="update-log-backdrop" type="button" tabIndex={-1} aria-label="Close update log" onClick={onClose} />
-      <aside id="update-log-panel" ref={drawerRef} className={`update-log-drawer${isOpen ? ' update-log-drawer-open' : ''}`} role="dialog" aria-modal={isOpen ? 'true' : undefined} aria-labelledby="update-log-title">
-        <header className="update-log-header">
-          <div>
-            <span className="update-log-kicker"><Activity size={13} /> CAMPUS TWIN · RELEASE NOTES</span>
-            <h2 id="update-log-title">Update log</h2>
-            <p>Changes, oldest first.</p>
-          </div>
-          <button ref={closeButtonRef} className="icon-button update-log-close" type="button" onClick={onClose} aria-label="Close update log" tabIndex={isOpen ? 0 : -1}><X size={18} /></button>
-        </header>
-        <div className="update-log-list" aria-label="CampusTwin changes in chronological order">
-          {updateLogEntries.map((entry) => (
-            <article className="update-log-entry" key={entry.number}>
-              <span className="update-log-marker" aria-hidden="true">{entry.number}</span>
-              <div className="update-log-entry-copy">
-                <div className="update-log-entry-meta"><span>UPDATE {entry.number}</span>{entry.href ? <a href={entry.href} target="_blank" rel="noreferrer">{entry.reference}<ArrowUpRight size={11} /></a> : <span className="update-log-current">{entry.reference}</span>}</div>
-                <h3>{entry.title}</h3>
-                <p>{entry.summary}</p>
-                <small>{entry.detail}</small>
+    <div className="page-stack update-log-page">
+      <PageIntro
+        eyebrow="CAMPUS TWIN / PROJECT HISTORY"
+        title="Update log"
+        description="A change-by-change record of CampusTwin, from the original student portal to the latest update."
+        action={<span className="update-log-order-chip"><Activity size={14} /> Newest first</span>}
+      />
+
+      <section className="update-log-summary" aria-label="History summary">
+        <div><span>PROJECT HISTORY</span><strong>{updateCount} updates</strong></div>
+        <div><span>ITEMIZED CHANGES</span><strong>{String(changeCount).padStart(2, '0')} changes</strong></div>
+        <div><span>ORDER</span><strong>Latest to launch</strong></div>
+      </section>
+
+      <section className="update-log-list" aria-label="CampusTwin changes, newest update first">
+        {updateLogEntries.map((entry) => (
+          <article className="update-log-entry" key={entry.id}>
+            <span className="update-log-marker" aria-hidden="true">{String(entry.version).padStart(2, '0')}</span>
+            <div className="update-log-entry-copy">
+              <div className="update-log-entry-meta">
+                <span>UPDATE {String(entry.version).padStart(2, '0')}</span>
+                {entry.href
+                  ? <a href={entry.href} target="_blank" rel="noreferrer">{entry.reference}<ArrowUpRight size={12} /></a>
+                  : <span className="update-log-current">{entry.reference}</span>}
               </div>
-            </article>
-          ))}
-        </div>
-        <footer className="update-log-footer"><ShieldCheck size={14} /><span>Preview history only · class posts stay in this browser.</span></footer>
-      </aside>
+              <h2>{entry.title}</h2>
+              <p>{entry.summary}</p>
+              <ul className="update-log-change-list">
+                {entry.changes.map((change) => <li key={change}>{change}</li>)}
+              </ul>
+            </div>
+          </article>
+        ))}
+      </section>
+
+      <aside className="update-log-footer"><ShieldCheck size={16} /><span>History of the shipped prototype. Campus content, class posts, and role previews remain browser-local.</span></aside>
     </div>
   );
 }
 
-function Topbar({ activePage, roleMode, unreadCount, onNotifications, isNotificationsOpen, onMobileMenu, searchValue, setSearchValue, searchOpen, setSearchOpen, searchResults, onSearchResult, searchRef }) {
+function Topbar({ activePage, roleMode, unreadCount, onNotifications, isNotificationsOpen, onMobileMenu, searchValue, setSearchValue, searchOpen, setSearchOpen, searchResults, onSearchResult, searchRef, userName, userInitials, authConfigured, developerMode }) {
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -537,7 +548,7 @@ function Topbar({ activePage, roleMode, unreadCount, onNotifications, isNotifica
       <div className="topbar-leading">
         <button className="icon-button mobile-menu-button" onClick={onMobileMenu} aria-label="Open navigation"><Menu size={20} /></button>
         <BrandMark small />
-        <div className="topbar-page-label"><span>{roleMode === 'class-representative' ? 'CLASS REP MODE' : 'STUDENT PORTAL'}</span><strong>{pageLabels[activePage] || 'Dashboard'}</strong></div>
+        <div className="topbar-page-label"><span className={developerMode ? 'topbar-developer-label' : undefined}>{developerMode ? `DEVELOPER MODE · ${roleMode === 'class-representative' ? 'CLASS REP' : 'LOCAL ONLY'}` : roleMode === 'class-representative' ? 'CLASS REP · DEMO' : `STUDENT PORTAL${authConfigured ? '' : ' · DEMO MODE'}`}</span><strong>{pageLabels[activePage] || 'Dashboard'}</strong></div>
       </div>
 
       <div className="topbar-search-wrap" ref={searchRef}>
@@ -583,7 +594,7 @@ function Topbar({ activePage, roleMode, unreadCount, onNotifications, isNotifica
             {unreadCount > 0 && <span className="notification-dot" />}
           </button>
         </div>
-        <span className="avatar avatar-topbar" title="Demo student profile" aria-label="Aanya Rao">AR</span>
+        <span className="avatar avatar-topbar" title={developerMode ? 'Developer preview · local only' : authConfigured ? userName : 'Local demo profile'} aria-label={developerMode ? 'Developer preview, local only' : authConfigured ? `Signed in as ${userName}` : 'Demo student profile'}>{userInitials}</span>
       </div>
     </header>
   );
@@ -620,7 +631,7 @@ function NotificationPanel({ unreadCount, unreadClassUpdates, readAnnouncements,
   );
 }
 
-function OverviewPage({ navigate, onOpenEvent, onOpenNotice, registeredEvents, readAnnouncements, eventList, unreadClassUpdates }) {
+function OverviewPage({ navigate, onOpenEvent, onOpenNotice, registeredEvents, readAnnouncements, eventList, unreadClassUpdates, displayName }) {
   const date = getDateParts(0);
   const unreadCount = announcements.filter((item) => !readAnnouncements.has(item.id)).length;
   const shortcuts = [
@@ -635,7 +646,7 @@ function OverviewPage({ navigate, onOpenEvent, onOpenNotice, registeredEvents, r
       <div className="page-intro overview-intro">
         <div>
           <div className="eyebrow"><span className="eyebrow-live-dot" />{date.full.toUpperCase()} <span className="eyebrow-divider">/</span> CAMPUS DASHBOARD</div>
-          <h1>Welcome back, Aanya</h1>
+          <h1>Welcome back, {displayName}</h1>
         </div>
       </div>
 
@@ -1578,7 +1589,9 @@ function OriginCardExpansion({ modal, onClose, isClosing, closeAnimationDuration
   );
 }
 
-function App() {
+function CampusTwinWorkspace({ user, authConfigured, onSignOut, developerMode = false, onExitDeveloperMode }) {
+  const displayName = getUserDisplayName(user);
+  const userInitials = getUserInitials(displayName);
   const [activePage, setActivePage] = useState('overview');
   const [isPageTransitionSettled, setIsPageTransitionSettled] = useState(false);
   const [searchValue, setSearchValue] = useState('');
@@ -1587,21 +1600,19 @@ function App() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const [modal, setModal] = useState(null);
   const [isModalClosing, setIsModalClosing] = useState(false);
-  const [isUpdateLogOpen, setIsUpdateLogOpen] = useState(false);
   const [toast, setToast] = useState('');
-  const [clubsJoined, setClubsJoined] = useStoredSet('campustwin-joined-clubs', ['first-principles']);
-  const [registeredEvents, setRegisteredEvents] = useStoredSet('campustwin-registered-events', []);
-  const [readAnnouncements, setReadAnnouncements] = useStoredSet('campustwin-read-notices', ['open-studio']);
-  const [roleMode, setRoleMode] = useStoredValue('campustwin-role-mode', 'student', ['student', 'class-representative']);
-  const [completedClassTasks, setCompletedClassTasks] = useStoredSet('campustwin-completed-class-tasks', []);
-  const [classUpdates, setClassUpdates] = useStoredList('campustwin-class-updates', initialClassUpdates, normalizeClassUpdates);
-  const [seenClassUpdates, setSeenClassUpdates] = useStoredSet('campustwin-seen-class-updates', initialClassUpdates.map((item) => item.id));
-  const [postedEvents, setPostedEvents] = useStoredList('campustwin-posted-club-events');
-  const [dismissedEventNotices, setDismissedEventNotices] = useStoredSet('campustwin-dismissed-club-event-notices', []);
+  const [clubsJoined, setClubsJoined] = useStoredSet(getScopedStorageKey('campustwin-joined-clubs', user), ['first-principles']);
+  const [registeredEvents, setRegisteredEvents] = useStoredSet(getScopedStorageKey('campustwin-registered-events', user), []);
+  const [readAnnouncements, setReadAnnouncements] = useStoredSet(getScopedStorageKey('campustwin-read-notices', user), ['open-studio']);
+  const [roleMode, setRoleMode] = useStoredValue(getScopedStorageKey('campustwin-role-mode', user), 'student', ['student', 'class-representative']);
+  const [completedClassTasks, setCompletedClassTasks] = useStoredSet(getScopedStorageKey('campustwin-completed-class-tasks', user), []);
+  const [classUpdates, setClassUpdates] = useStoredList(getScopedStorageKey('campustwin-class-updates', user), initialClassUpdates, normalizeClassUpdates);
+  const [seenClassUpdates, setSeenClassUpdates] = useStoredSet(getScopedStorageKey('campustwin-seen-class-updates', user), initialClassUpdates.map((item) => item.id));
+  const [postedEvents, setPostedEvents] = useStoredList(getScopedStorageKey('campustwin-posted-club-events', user));
+  const [dismissedEventNotices, setDismissedEventNotices] = useStoredSet(getScopedStorageKey('campustwin-dismissed-club-event-notices', user), []);
   const [clockNow, setClockNow] = useState(Date.now());
   const [modalCloseAnimationDuration, setModalCloseAnimationDuration] = useState(240);
   const searchWrapRef = useRef(null);
-  const updateLogTriggerRef = useRef(null);
   const originCardAnimationRef = useRef(null);
   const toastTimeoutRef = useRef(null);
   const modalCloseTimerRef = useRef(null);
@@ -1733,14 +1744,6 @@ function App() {
     }
   }, [modal]);
 
-  const openUpdateLog = useCallback(() => {
-    setIsNotificationsOpen(false);
-    setSearchOpen(false);
-    setIsMobileNavOpen(false);
-    setIsUpdateLogOpen(true);
-  }, []);
-  const closeUpdateLog = useCallback(() => setIsUpdateLogOpen(false), []);
-
   const eventList = useMemo(() => {
     const livePostedEvents = postedEvents.filter((event) => Number.isFinite(Date.parse(event.endsAt)) && Date.parse(event.endsAt) > clockNow);
     return [...events, ...livePostedEvents].sort((first, second) => getEventStartTimestamp(first) - getEventStartTimestamp(second));
@@ -1767,6 +1770,11 @@ function App() {
     window.clearTimeout(toastTimeoutRef.current);
     toastTimeoutRef.current = window.setTimeout(() => setToast(''), 3400);
   }, []);
+  const signOut = useCallback(async () => {
+    if (!onSignOut) return;
+    const { error } = await onSignOut();
+    if (error) showToast(`Sign out failed: ${error.message}`);
+  }, [onSignOut, showToast]);
 
   useEffect(() => () => {
     window.clearTimeout(toastTimeoutRef.current);
@@ -1805,6 +1813,26 @@ function App() {
       window.scrollTo({ top: 0, behavior });
     }
   }, [activePage]);
+
+  const restartPreview = useCallback(() => {
+    originCardAnimationRef.current?.cancel();
+    originCardAnimationRef.current = null;
+    document.querySelector('.modal-shell')?.getAnimations?.().forEach((animation) => animation.cancel());
+    window.clearTimeout(modalCloseTimerRef.current);
+    modalCloseTimerRef.current = null;
+    modalCloseLockRef.current = false;
+    setModal(null);
+    setIsModalClosing(false);
+    setIsNotificationsOpen(false);
+    setIsMobileNavOpen(false);
+    setSearchOpen(false);
+    setSearchValue('');
+    setActivePage('overview');
+    setIsPageTransitionSettled(false);
+    setRoleMode('student');
+    window.scrollTo({ top: 0, behavior: 'auto' });
+    showToast('Back at the start. Your saved preview data stays in this browser.');
+  }, [setRoleMode, showToast]);
 
   const setNoticeRead = useCallback((id) => {
     setReadAnnouncements((current) => new Set([...current, id]));
@@ -1918,6 +1946,10 @@ function App() {
     showToast('Class update removed from this browser preview.');
   }, [setClassUpdates, showToast]);
   const publishClubEvent = useCallback((event) => {
+    if (!developerMode) {
+      showToast('Club-event publishing is only available in Developer Mode preview.');
+      return;
+    }
     setPostedEvents((current) => [event, ...current]);
     setDismissedEventNotices((current) => {
       const next = new Set(current);
@@ -1926,19 +1958,21 @@ function App() {
     });
     setClockNow(Date.now());
     closeModal();
-  }, [closeModal, setDismissedEventNotices, setPostedEvents]);
+    showToast('Club event added to this browser preview.');
+  }, [closeModal, developerMode, setDismissedEventNotices, setPostedEvents, showToast]);
   const dismissEventNotice = useCallback((id) => {
     setDismissedEventNotices((current) => new Set([...current, id]));
   }, [setDismissedEventNotices]);
 
-  const canPostClubEvents = false; // Enable only after club leader/core-member profiles and authorization exist.
+  const canPostClubEvents = developerMode; // A local-only capability for the Developer Mode preview; not real authorization.
   let currentPage;
   if (activePage === 'events') currentPage = <EventsPage onOpenEvent={openEvent} registeredEvents={registeredEvents} eventList={eventList} />;
   else if (activePage === 'clubs') currentPage = <ClubsPage clubsJoined={clubsJoined} onToggleClub={(club) => { const wasJoined = clubsJoined.has(club.id); toggleClub(club); if (!wasJoined) showToast(`Your membership status for ${club.name} was updated.`); }} onOpenClub={openClub} onOpenEvent={openEvent} eventList={eventList} onPostEvent={canPostClubEvents ? openPostEvent : undefined} />;
   else if (activePage === 'class') currentPage = <ClassPage roleMode={roleMode} classUpdates={classUpdates} unreadClassUpdateIds={unreadClassUpdateIds} completedTasks={completedClassTasks} onToggleTask={toggleClassTask} onPostUpdate={openPostClassUpdate} onRemoveUpdate={removeClassUpdate} onMarkUpdatesRead={markAllClassUpdatesRead} clockNow={clockNow} />;
   else if (activePage === 'directory') currentPage = <DirectoryPage />;
   else if (activePage === 'announcements') currentPage = <AnnouncementsPage readAnnouncements={readAnnouncements} onReadNotice={setNoticeRead} onAllRead={markAllRead} onOpenNotice={(item, origin) => showModal({ type: 'notice', item, origin })} />;
-  else currentPage = <OverviewPage navigate={navigate} onOpenEvent={openEvent} onOpenNotice={openNotice} registeredEvents={registeredEvents} readAnnouncements={readAnnouncements} eventList={eventList} unreadClassUpdates={unreadClassUpdates} />;
+  else if (activePage === 'updateLog') currentPage = <UpdateLogPage />;
+  else currentPage = <OverviewPage navigate={navigate} onOpenEvent={openEvent} onOpenNotice={openNotice} registeredEvents={registeredEvents} readAnnouncements={readAnnouncements} eventList={eventList} unreadClassUpdates={unreadClassUpdates} displayName={displayName} />;
 
   const hasLiveCardOrigin = Boolean(modal?.origin?.element?.isConnected);
   const isOriginModalClosing = Boolean(isModalClosing && modal?.origin && typeof Element !== 'undefined' && typeof Element.prototype.animate === 'function');
@@ -1946,7 +1980,7 @@ function App() {
 
   return (
     <div className={`app-shell${isModalClosing ? ' app-shell-modal-closing' : ''}${isOriginModalClosing ? ' app-shell-modal-origin-closing' : ''}${usesSharedCardExpansion ? ' app-shell-modal-origin-active' : ''}`}>
-      <Sidebar activePage={activePage} navigate={navigate} unreadCount={unreadCount} unreadClassUpdateCount={unreadClassUpdates.length} isOpen={isMobileNavOpen} onClose={() => setIsMobileNavOpen(false)} onFeedback={openFeedback} onOpenUpdateLog={openUpdateLog} isUpdateLogOpen={isUpdateLogOpen} updateLogTriggerRef={updateLogTriggerRef} eventList={eventList} registeredEvents={registeredEvents} clubsJoined={clubsJoined} roleMode={roleMode} onRoleChange={setRoleMode} onOpenEvent={openEvent} onOpenClub={openClub} />
+      <Sidebar activePage={activePage} navigate={navigate} unreadCount={unreadCount} unreadClassUpdateCount={unreadClassUpdates.length} isOpen={isMobileNavOpen} onClose={() => setIsMobileNavOpen(false)} onFeedback={openFeedback} eventList={eventList} registeredEvents={registeredEvents} clubsJoined={clubsJoined} roleMode={roleMode} onRoleChange={setRoleMode} onOpenEvent={openEvent} onOpenClub={openClub} profileName={displayName} profileEmail={developerMode ? 'Developer mode · local only' : user?.email || 'Local demo · not signed in'} profileInitials={userInitials} onSignOut={developerMode ? onExitDeveloperMode : authConfigured ? signOut : undefined} developerMode={developerMode} onRestartPreview={restartPreview} />
       <div className="workspace">
         <Topbar
           activePage={activePage}
@@ -1962,6 +1996,10 @@ function App() {
           searchResults={searchResults}
           onSearchResult={chooseSearchResult}
           searchRef={searchWrapRef}
+          userName={displayName}
+          userInitials={userInitials}
+          authConfigured={authConfigured}
+          developerMode={developerMode}
         />
         {isNotificationsOpen && <NotificationPanel unreadCount={unreadCount} unreadClassUpdates={unreadClassUpdates} readAnnouncements={readAnnouncements} onOpenNotice={openNotice} onOpenClass={() => navigate('class')} onAllRead={markAllNotificationsRead} />}
         <main className="main-content" id="main-content">
@@ -1979,11 +2017,49 @@ function App() {
       {modal?.type === 'post-event' && <PostClubEventModal onClose={closeModal} onPublish={publishClubEvent} />}
       {modal?.type === 'class-update' && <PostClassUpdateModal onClose={closeModal} onPublish={publishClassUpdate} />}
       {!modal && activeEventNotice && <PostedEventPopup event={activeEventNotice} onDismiss={() => dismissEventNotice(activeEventNotice.id)} />}
-      <UpdateLogDrawer isOpen={isUpdateLogOpen} onClose={closeUpdateLog} triggerRef={updateLogTriggerRef} />
 
       {toast && <div className={`toast-message${activeEventNotice ? ' toast-message-with-event' : ''}`} role="status"><span className="toast-check"><Check size={14} /></span>{toast}</div>}
     </div>
   );
+}
+
+function AuthLoadingScreen() {
+  return (
+    <main className="auth-loading" aria-busy="true">
+      <span className="auth-brand-mark"><span /></span>
+      <strong>Checking your session…</strong>
+    </main>
+  );
+}
+
+function App() {
+  const [developerMode, setDeveloperMode] = useState(loadDeveloperMode);
+  const { ready, user, passwordRecovery, clearPasswordRecovery } = useAuthSession({ enabled: !developerMode });
+  const signOut = useCallback(() => getSupabaseClient()?.auth.signOut(), []);
+  const startDeveloperMode = useCallback(() => {
+    saveDeveloperMode(true);
+    setDeveloperMode(true);
+  }, []);
+  const exitDeveloperMode = useCallback(() => {
+    saveDeveloperMode(false);
+    setDeveloperMode(false);
+  }, []);
+
+  if (developerMode) {
+    return <CampusTwinWorkspace key={developerPreviewUser.id} user={developerPreviewUser} authConfigured={isSupabaseConfigured} developerMode onExitDeveloperMode={exitDeveloperMode} />;
+  }
+  if (isSupabaseConfigured && !ready) return <AuthLoadingScreen />;
+  if (isSupabaseConfigured && (!user || passwordRecovery)) {
+    return <AuthScreen
+      key={passwordRecovery ? 'password-recovery' : 'sign-in'}
+      client={getSupabaseClient()}
+      isPasswordRecovery={passwordRecovery}
+      onPasswordUpdated={clearPasswordRecovery}
+      onStartDeveloperMode={startDeveloperMode}
+    />;
+  }
+
+  return <CampusTwinWorkspace key={user?.id || 'local-demo'} user={user} authConfigured={isSupabaseConfigured} onSignOut={signOut} />;
 }
 
 export default App;
