@@ -228,12 +228,15 @@ function getCardRect(element) {
 }
 
 function openCardFromSurface(event, onOpen) {
+  if (event.currentTarget.classList.contains('origin-card-expanded')) return;
   if (event.target.closest?.('button, a, input, select, textarea, [data-card-action]')) return;
   onOpen(getCardRect(event.currentTarget));
 }
 
 function openCardFromControl(event, onOpen) {
-  onOpen(getCardRect(event.currentTarget.closest('.clickable-card')));
+  const card = event.currentTarget.closest('.clickable-card');
+  if (!card || card.classList.contains('origin-card-expanded')) return;
+  onOpen(getCardRect(card));
 }
 
 function Icon({ name, size = 18, strokeWidth = 1.8, ...props }) {
@@ -520,7 +523,6 @@ function OverviewPage({ navigate, onOpenEvent, onOpenNotice, registeredEvents, r
         <div>
           <div className="eyebrow"><span className="eyebrow-live-dot" />{date.full.toUpperCase()} <span className="eyebrow-divider">/</span> CAMPUS DASHBOARD</div>
           <h1>Welcome back, Aanya</h1>
-          <p>Access events, student groups, and campus services.</p>
         </div>
       </div>
 
@@ -599,7 +601,10 @@ function UpcomingEvent({ event, onClick, registered }) {
 }
 
 function BulletinItem({ item, onClick }) {
-  const open = (event) => onClick(getCardRect(event.currentTarget));
+  const open = (event) => {
+    if (event.currentTarget.classList.contains('origin-card-expanded')) return;
+    onClick(getCardRect(event.currentTarget));
+  };
   return (
     <article className="bulletin-item clickable-card" role="button" tabIndex={0} onClick={open} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(event); } }}>
       <span className={`bulletin-symbol tone-${item.color}`}><Icon name={item.icon} size={16} /></span>
@@ -630,11 +635,7 @@ function EventsPage({ onOpenEvent, registeredEvents, eventList }) {
 
   return (
     <div className="page-stack">
-      <PageIntro
-        eyebrow="STUDENT PORTAL / EVENTS"
-        title="Events & activities"
-        description="Browse upcoming campus events, workshops, talks, and student activities."
-      />
+      <PageIntro eyebrow="STUDENT PORTAL / EVENTS" title="Events & activities" />
 
       <section className="events-glance" aria-labelledby="events-glance-title">
         <div className="events-glance-heading">
@@ -646,11 +647,11 @@ function EventsPage({ onOpenEvent, registeredEvents, eventList }) {
             <span className="events-glance-icon tone-lime"><CalendarDays size={17} /></span>
             <span className="events-glance-copy"><small>THIS WEEK</small><strong>{weekEvents.length} events</strong></span>
           </article>
-          <button className="events-glance-item events-glance-next" onClick={(clickEvent) => onOpenEvent(nextEvent, getCardRect(clickEvent.currentTarget))} aria-label={`View details for ${nextEvent.title}`}>
+          <article className="events-glance-item events-glance-next clickable-card" role="button" tabIndex={0} onClick={(clickEvent) => openCardFromSurface(clickEvent, (origin) => onOpenEvent(nextEvent, origin))} onKeyDown={(keyEvent) => { if ((keyEvent.key === 'Enter' || keyEvent.key === ' ') && !keyEvent.currentTarget.classList.contains('origin-card-expanded')) { keyEvent.preventDefault(); onOpenEvent(nextEvent, getCardRect(keyEvent.currentTarget)); } }} aria-label={`View details for ${nextEvent.title}`}>
             <span className="events-glance-icon tone-cyan"><Activity size={17} /></span>
             <span className="events-glance-copy"><small>NEXT UP · {getEventDayLabel(nextEvent.dayOffset)} · {nextEvent.time}</small><strong>{nextEvent.title}</strong></span>
             <ArrowUpRight size={15} className="events-glance-arrow" />
-          </button>
+          </article>
           <article className="events-glance-item">
             <span className="events-glance-icon tone-violet"><CheckCheck size={17} /></span>
             <span className="events-glance-copy"><small>YOUR RSVPS</small><strong>{registeredEvents.size} registered</strong></span>
@@ -707,7 +708,6 @@ function EventsPage({ onOpenEvent, registeredEvents, eventList }) {
         </div>
       )}
 
-      <div className="page-note"><ShieldCheck size={15} /><span>Event dates and venues are sample data. Use your institution’s verified event feed before launch.</span></div>
     </div>
   );
 }
@@ -746,7 +746,7 @@ function ClubsPage({ clubsJoined, onToggleClub, onOpenClub, onOpenEvent, eventLi
 
   return (
     <div className="page-stack">
-      <PageIntro eyebrow="STUDENT PORTAL / STUDENT GROUPS" title="Clubs & student groups" description="Browse student-led clubs, interests, and upcoming activities." action={onPostEvent ? <button className="button button-outline club-post-event" onClick={onPostEvent}><CalendarDays size={15} /> Post a club event</button> : undefined} />
+      <PageIntro eyebrow="STUDENT PORTAL / STUDENT GROUPS" title="Clubs & student groups" action={onPostEvent ? <button className="button button-outline club-post-event" onClick={onPostEvent}><CalendarDays size={15} /> Post a club event</button> : undefined} />
       <section className="club-glance" aria-labelledby="club-glance-title">
         <div className="club-glance-heading"><div><p className="section-overline">AT A GLANCE</p><h2 id="club-glance-title">Nearest club events</h2></div></div>
         <div className="club-glance-columns" aria-hidden="true"><span>Date</span><span>Club</span><span>Event</span><span>Location</span></div>
@@ -821,10 +821,10 @@ function DirectoryPage() {
 
   return (
     <div className="page-stack">
-      <PageIntro eyebrow="STUDENT PORTAL / DIRECTORY" title="Campus directory" description="Search academic departments, staff contacts, and student services." action={<span className="intro-chip"><ContactRound size={14} /> {directory.length} listings</span>} />
+      <PageIntro eyebrow="STUDENT PORTAL / DIRECTORY" title="Campus directory" action={<span className="intro-chip"><ContactRound size={14} /> {directory.length} listings</span>} />
       <section className="directory-welcome">
         <div className="directory-welcome-icon"><ContactRound size={21} /></div>
-        <div><span>PEOPLE AND SERVICES</span><h2>Campus contacts and resources</h2><p>Browse contact details, service information, office hours, and academic listings.</p></div>
+        <div><span>PEOPLE AND SERVICES</span><h2>Campus contacts and resources</h2></div>
         <div className="directory-welcome-art" aria-hidden="true"><span /><span /><span /><span /><span /></div>
       </section>
       <div className="directory-toolbar">
@@ -842,7 +842,6 @@ function DirectoryPage() {
         </article>)}
         {filteredDirectory.length === 0 && <EmptyState title="No directory results" copy="Try searching for a person, service, or department." />}
       </div>
-      <div className="page-note"><ShieldCheck size={15} /><span>Directory entries and contact details are examples. Replace them with verified, approved campus information.</span></div>
     </div>
   );
 }
@@ -854,7 +853,6 @@ function AnnouncementsPage({ readAnnouncements, onReadNotice, onAllRead, onOpenN
       <PageIntro
         eyebrow="STUDENT PORTAL / CAMPUS ANNOUNCEMENTS"
         title="Notices & announcements"
-        description="Campus-wide notices from departments, services, and groups. Section-only posts from your class representative are in My Class."
         action={unreadCount > 0 ? <button className="button button-outline" onClick={onAllRead}><CheckCheck size={16} /> Mark all as read</button> : <span className="intro-chip"><Check size={14} /> All notices read</span>}
       />
       <div className="section-toolbar bulletin-toolbar">
@@ -864,7 +862,6 @@ function AnnouncementsPage({ readAnnouncements, onReadNotice, onAllRead, onOpenN
       <div className="announcement-feed">
         {announcements.map((item) => <AnnouncementCard key={item.id} item={item} isRead={readAnnouncements.has(item.id)} onClick={(origin) => { onReadNotice(item.id); onOpenNotice(item, origin); }} />)}
       </div>
-      <div className="page-note"><ShieldCheck size={15} /><span>These notices are sample data. Connect an approved campus source before launch.</span></div>
     </div>
   );
 }
@@ -896,7 +893,6 @@ function ClassPage({ roleMode, classUpdates, unreadClassUpdateIds, completedTask
       <PageIntro
         eyebrow="MY CLASS / YEAR 2 · SECTION A"
         title="My class"
-        description="Deadlines and section updates from your class representative."
         action={isRepresentative && <button className="button button-lime" onClick={onPostUpdate}><Megaphone size={15} /> Post class update</button>}
       />
 
@@ -956,7 +952,6 @@ function ClassPage({ roleMode, classUpdates, unreadClassUpdateIds, completedTask
           {classUpdates.map((item) => <ClassUpdateCard key={item.id} item={item} isUnread={unreadClassUpdateIds.has(item.id)} canManage={isRepresentative && item.isLocal} onRemove={() => onRemoveUpdate(item.id)} />)}
           {classUpdates.length === 0 && <p className="class-empty">No class-rep updates yet.</p>}
         </div>
-        <p className="class-demo-note"><ShieldCheck size={13} /> Preview only · class updates aren’t shared with other students.</p>
       </section>
     </div>
   );
@@ -1015,8 +1010,8 @@ function PostClassUpdateModal({ onClose, onPublish }) {
 
 function PageIntro({ eyebrow, title, description, action }) {
   return (
-    <div className="page-intro">
-      <div><div className="eyebrow"><span className="eyebrow-live-dot" />{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>
+    <div className={`page-intro${description ? '' : ' page-intro-compact'}`}>
+      <div><div className="eyebrow"><span className="eyebrow-live-dot" />{eyebrow}</div><h1>{title}</h1>{description && <p>{description}</p>}</div>
       {action && <div className="page-intro-action">{action}</div>}
     </div>
   );
@@ -1250,9 +1245,11 @@ function Modal({ children, onClose, origin }) {
   );
 }
 
-function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegister, joined, onToggleClub, showToast }) {
+function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegister, showToast }) {
   const element = modal.origin?.element;
-  const contentAnimationsRef = useRef([]);
+  const registerTarget = modal.type === 'event' && element?.isConnected
+    ? element.querySelector('.event-card-footer') || element
+    : null;
   const [phase, setPhase] = useState('opening');
 
   useLayoutEffect(() => {
@@ -1268,29 +1265,23 @@ function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegist
     };
   }, []);
 
-  useEffect(() => {
-    const onKeyDown = (event) => { if (event.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [onClose]);
-
   useLayoutEffect(() => {
     if (!element?.isConnected) return undefined;
+    const origin = modal.origin || getCardRect(element);
+    if (!origin?.width || !origin?.height) return undefined;
 
-    const styleProperties = ['position', 'left', 'top', 'width', 'height', 'zIndex', 'maxHeight', 'maxWidth', 'overflow', 'padding', 'minHeight', 'transformOrigin'];
+    const styleProperties = ['position', 'left', 'top', 'width', 'height', 'zIndex', 'maxHeight', 'maxWidth', 'overflow', 'minHeight', 'minWidth', 'transformOrigin'];
     const previousStyles = Object.fromEntries(styleProperties.map((property) => [property, element.style[property]]));
     const previousAttributes = Object.fromEntries(['role', 'aria-modal', 'aria-label', 'tabindex'].map((name) => [name, element.getAttribute(name)]));
     const transitionClasses = ['modal-shell', 'modal-shell-origin', 'origin-card-expanded', 'origin-card-expansion-opening', 'origin-card-expansion-open', 'origin-card-expansion-closing'];
     const originalClasses = new Map(transitionClasses.map((name) => [name, element.classList.contains(name)]));
-    const originalChildren = Array.from(element.children).filter((child) => !child.classList.contains('origin-card-detail-content'));
-    const childStates = originalChildren.map((child) => ({ element: child, inert: child.inert, ariaHidden: child.getAttribute('aria-hidden') }));
-    const originRadius = modal.origin.borderRadius || '14px';
-    const placeholder = document.createElement('div');
     const sourceLayout = window.getComputedStyle(element);
+    const placeholder = document.createElement('div');
     placeholder.className = 'origin-card-placeholder';
     placeholder.setAttribute('aria-hidden', 'true');
-    placeholder.style.width = `${modal.origin.width}px`;
-    placeholder.style.height = `${modal.origin.height}px`;
+    placeholder.style.boxSizing = 'border-box';
+    placeholder.style.width = `${origin.width}px`;
+    placeholder.style.height = `${origin.height}px`;
     placeholder.style.margin = sourceLayout.margin;
     placeholder.style.flex = sourceLayout.flex;
     placeholder.style.gridColumn = sourceLayout.gridColumn;
@@ -1300,10 +1291,9 @@ function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegist
     placeholder.style.minWidth = '0';
     placeholder.style.minHeight = '0';
     element.parentNode?.insertBefore(placeholder, element);
+
     const restoreSource = () => {
       element.getAnimations?.().forEach((animation) => animation.cancel());
-      contentAnimationsRef.current.forEach((animation) => animation.cancel());
-      contentAnimationsRef.current = [];
       for (const property of styleProperties) element.style[property] = previousStyles[property];
       for (const [name, wasPresent] of originalClasses) element.classList.toggle(name, wasPresent);
       element.focus?.({ preventScroll: true });
@@ -1311,19 +1301,10 @@ function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegist
         if (value === null) element.removeAttribute(name);
         else element.setAttribute(name, value);
       }
-      for (const { element: child, inert, ariaHidden } of childStates) {
-        child.inert = inert;
-        if (ariaHidden === null) child.removeAttribute('aria-hidden');
-        else child.setAttribute('aria-hidden', ariaHidden);
-      }
       placeholder.remove();
     };
 
     element.classList.add('modal-shell', 'modal-shell-origin', 'origin-card-expanded', 'origin-card-expansion-opening');
-    for (const { element: child } of childStates) {
-      child.inert = true;
-      child.setAttribute('aria-hidden', 'true');
-    }
     element.setAttribute('role', 'dialog');
     element.setAttribute('aria-modal', 'true');
     element.setAttribute('aria-label', modal.item?.title || modal.item?.name || 'Details');
@@ -1331,13 +1312,13 @@ function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegist
     element.focus?.({ preventScroll: true });
     element.style.position = 'fixed';
     element.style.zIndex = '101';
-    element.style.overflow = 'hidden';
-    element.style.padding = '0';
+    element.style.overflow = 'auto';
     element.style.minHeight = '0';
+    element.style.minWidth = '0';
     element.style.maxWidth = 'none';
 
     const pagePadding = window.innerWidth <= 600 ? 12 : 24;
-    const targetWidth = Math.max(1, Math.min(480, window.innerWidth - pagePadding * 2));
+    const targetWidth = Math.max(1, Math.min(560, window.innerWidth - pagePadding * 2));
     const maxHeight = Math.max(1, Math.min(760, window.innerHeight - pagePadding * 2));
     element.style.width = `${targetWidth}px`;
     element.style.height = 'auto';
@@ -1345,48 +1326,42 @@ function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegist
     element.style.top = '0px';
     element.style.maxHeight = `${maxHeight}px`;
 
-    const detailLayer = element.querySelector(':scope > .origin-card-detail-content');
-    const measuredHeight = (detailLayer?.scrollHeight || 320) + 2;
-    const targetHeight = Math.max(1, Math.min(maxHeight, measuredHeight));
+    const minimumHeight = element.classList.contains('announcement-card') ? 260 : 350;
+    const targetHeight = Math.max(Math.min(minimumHeight, maxHeight), Math.min(maxHeight, element.scrollHeight));
     const targetLeft = (window.innerWidth - targetWidth) / 2;
     const targetTop = (window.innerHeight - targetHeight) / 2;
     element.style.height = `${targetHeight}px`;
     element.style.left = `${targetLeft}px`;
     element.style.top = `${targetTop}px`;
 
+    const focusCloseButton = () => {
+      if (element.isConnected) element.querySelector(':scope > .origin-card-close')?.focus({ preventScroll: true });
+    };
     const finalRadius = window.getComputedStyle(element).borderRadius;
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches || typeof element.animate !== 'function') {
       setPhase('open');
+      window.requestAnimationFrame(focusCloseButton);
       return restoreSource;
     }
 
-    const translateX = modal.origin.left - targetLeft;
-    const translateY = modal.origin.top - targetTop;
-    const scaleX = modal.origin.width / targetWidth;
-    const scaleY = modal.origin.height / targetHeight;
-    contentAnimationsRef.current = [];
-    if (detailLayer?.animate) {
-      contentAnimationsRef.current.push(detailLayer.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 320, delay: 40, easing: 'cubic-bezier(.2, .75, .25, 1)', fill: 'both' }));
-    }
-    for (const child of originalChildren) {
-      if (typeof child.animate === 'function') contentAnimationsRef.current.push(child.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, easing: 'ease-out', fill: 'both' }));
-    }
+    const translateX = origin.left - targetLeft;
+    const translateY = origin.top - targetTop;
+    const scaleX = origin.width / targetWidth;
+    const scaleY = origin.height / targetHeight;
     const animation = element.animate([
-      { transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: originRadius, opacity: .98 },
+      { transformOrigin: 'top left', transform: `translate3d(${translateX}px, ${translateY}px, 0) scale(${scaleX}, ${scaleY})`, borderRadius: origin.borderRadius || '14px', opacity: .98 },
       { transformOrigin: 'top left', transform: 'translate3d(0, 0, 0) scale(1, 1)', borderRadius: finalRadius, opacity: 1 },
     ], { duration: 620, easing: 'cubic-bezier(.22, .72, .2, 1)', fill: 'both' });
     animation.onfinish = () => {
       setPhase('open');
-      window.requestAnimationFrame(() => {
-        if (element.isConnected && !element.classList.contains('origin-card-expansion-closing')) detailLayer?.querySelector('.modal-close')?.focus({ preventScroll: true });
-      });
+      window.requestAnimationFrame(focusCloseButton);
     };
 
     return () => {
       animation.onfinish = null;
       restoreSource();
     };
-  }, [element, modal.item, modal.origin, modal.type]);
+  }, [element, modal.item, modal.origin]);
 
   useLayoutEffect(() => {
     if (!element?.isConnected) return;
@@ -1395,42 +1370,34 @@ function OriginCardExpansion({ modal, onClose, isClosing, isRegistered, onRegist
     element.classList.toggle('origin-card-expansion-closing', isClosing);
   }, [element, isClosing, phase]);
 
-  useLayoutEffect(() => {
-    if (!element?.isConnected || !isClosing) return;
-    const detailLayer = element.querySelector(':scope > .origin-card-detail-content');
-    const originalChildren = Array.from(element.children).filter((child) => !child.classList.contains('origin-card-detail-content'));
-    const targets = [
-      ...originalChildren.map((target) => ({ target, opacity: 1 })),
-      ...(detailLayer ? [{ target: detailLayer, opacity: 0 }] : []),
-    ];
-    const startingOpacities = targets.map(({ target }) => {
-      const opacity = Number.parseFloat(window.getComputedStyle(target).opacity);
-      return Number.isFinite(opacity) ? opacity : 1;
-    });
-    contentAnimationsRef.current.forEach((animation) => animation.cancel());
-    contentAnimationsRef.current = [];
-    if (targets.some(({ target }) => typeof target.animate !== 'function')) return;
-    contentAnimationsRef.current = targets.map(({ target, opacity }, index) => target.animate(
-      [{ opacity: startingOpacities[index] }, { opacity }],
-      { duration: 190, easing: 'cubic-bezier(.2, .75, .25, 1)', fill: 'both' },
-    ));
-  }, [element, isClosing]);
+  useEffect(() => {
+    const onKeyDown = (event) => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
 
-  const detailContent = modal.type === 'event'
-    ? <EventModalContent event={modal.item} isRegistered={isRegistered} onRegister={onRegister} showToast={showToast} />
-    : modal.type === 'club'
-      ? <ClubModalContent club={modal.item} joined={joined} onToggle={onToggleClub} showToast={showToast} />
-      : <NoticeModalContent item={modal.item} onClose={onClose} />;
+  const registerEvent = (event) => {
+    event.stopPropagation();
+    if (isRegistered) {
+      showToast('You are already registered for this event.');
+      return;
+    }
+    onRegister(modal.item);
+    showToast('Registration saved in this demo.');
+  };
 
   return (
     <>
       <div className="modal-backdrop modal-backdrop-origin" onClick={(event) => { if (event.target === event.currentTarget) onClose(); }} />
       {element?.isConnected && createPortal(
-        <div className="origin-card-detail-content" onClick={(event) => event.stopPropagation()}>
-          <button className="modal-close icon-button" onClick={onClose} aria-label="Close dialog"><X size={18} /></button>
-          {detailContent}
-        </div>,
+        <button className="modal-close icon-button origin-card-close" type="button" onClick={onClose} aria-label="Close dialog"><X size={18} /></button>,
         element,
+      )}
+      {registerTarget && createPortal(
+        <button className={`button origin-card-register${isRegistered ? ' button-registered' : ' button-lime'}`} type="button" onClick={registerEvent}>
+          {isRegistered ? <><Check size={16} /> Registered</> : <>Register for event <ArrowRight size={15} /></>}
+        </button>,
+        registerTarget,
       )}
     </>
   );
@@ -1738,7 +1705,7 @@ function App() {
         </main>
       </div>
 
-      {usesSharedCardExpansion && <OriginCardExpansion modal={modal} onClose={closeModal} isClosing={isModalClosing} isRegistered={registeredEvents.has(modal.item.id)} onRegister={toggleRegistration} joined={clubsJoined.has(modal.item.id)} onToggleClub={toggleClub} showToast={showToast} />}
+      {usesSharedCardExpansion && <OriginCardExpansion modal={modal} onClose={closeModal} isClosing={isModalClosing} isRegistered={registeredEvents.has(modal.item.id)} onRegister={toggleRegistration} showToast={showToast} />}
       {modal?.type === 'event' && !usesSharedCardExpansion && <EventModal event={modal.item} isRegistered={registeredEvents.has(modal.item.id)} onRegister={toggleRegistration} onClose={closeModal} showToast={showToast} />}
       {modal?.type === 'club' && !usesSharedCardExpansion && <ClubModal club={modal.item} joined={clubsJoined.has(modal.item.id)} onToggle={toggleClub} onClose={closeModal} showToast={showToast} />}
       {modal?.type === 'notice' && !usesSharedCardExpansion && <NoticeModal item={modal.item} onClose={closeModal} />}

@@ -167,6 +167,8 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .main-content-inner { width: min(100%, 1450px); margin: 0 auto; padding: 32px 40px 52px; }
 .page-stack { display: flex; flex-direction: column; gap: 25px; }
 .page-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; min-height: 74px; }
+.page-intro-compact { min-height: 54px; }
+.page-intro-compact h1 { margin-bottom: 0; }
 .page-intro h1 { margin: 10px 0 6px; color: #19263b; font-family: 'Space Grotesk Variable', 'DM Sans Variable', sans-serif; font-size: clamp(25px, 2.2vw, 32px); font-weight: 600; letter-spacing: -1.3px; line-height: 1.15; }
 .page-intro > div:first-child > p { margin: 0; color: #7c8798; font-size: 12px; line-height: 1.6; }
 .eyebrow { display: flex; align-items: center; gap: 8px; color: #8994a5; font-size: 8px; font-weight: 700; letter-spacing: 1.2px; line-height: 1.4; }
@@ -297,8 +299,6 @@ button:disabled { opacity: .55; cursor: not-allowed; }
 .event-card-footer { display: flex; align-items: center; justify-content: space-between; gap: 7px; margin-top: 11px; }
 .event-seat-label { display: flex; align-items: center; gap: 6px; overflow: hidden; color: #7e8999; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .seat-indicator { width: 5px; height: 5px; display: inline-block; flex: 0 0 auto; border-radius: 50%; background: #a8d45d; box-shadow: 0 0 0 3px rgba(168, 212, 93, .12); }
-.page-note { display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border: 1px solid #e7ebef; border-radius: 9px; color: #778395; background: rgba(255, 255, 255, .68); font-size: 9px; line-height: 1.55; }
-.page-note svg { flex: 0 0 auto; margin-top: 1px; color: #90a06c; }
 
 /* Clubs */
 .directory-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -821,8 +821,6 @@ body { color: var(--ink); background: var(--canvas); }
 .event-card-footer { margin-top: 13px; }
 .event-seat-label { color: #718076; font-size: 10px; }
 .seat-indicator { background: #93ad69; box-shadow: 0 0 0 3px rgba(147, 173, 105, .14); }
-.page-note { padding: 11px 13px; border-color: #e5e8df; border-radius: 10px; color: #6e7b71; background: rgba(255, 254, 250, .78); font-size: 10px; }
-.page-note svg { color: #7f9661; }
 
 .club-grid { gap: 14px; }
 .club-card {
@@ -1351,8 +1349,6 @@ button.bulletin-item:active:not(:disabled):not(.sidebar-scrim) { transform: none
 .class-update-remove { width: 30px; height: 30px; display: grid; place-items: center; flex: 0 0 auto; border: 1px solid #e8ebe3; border-radius: 8px; color: #7b887c; background: #fffefa; cursor: pointer; }
 .class-update-remove:hover { border-color: #ead5ce; color: #a25d50; background: #fff8f6; }
 .class-empty { margin: 0; padding: 13px 0; border-top: 1px solid #eceee7; color: #7b887c; font-size: 11px; line-height: 1.5; }
-.class-demo-note { display: flex; align-items: flex-start; gap: 7px; margin: 9px 0 0; padding-top: 10px; border-top: 1px solid #eceee7; color: #7f8b7f; font-size: 9px; line-height: 1.45; }
-.class-demo-note svg { flex: 0 0 auto; margin-top: 1px; color: #81996a; }
 .class-update-mark-read { padding: 7px 9px; border: 1px solid #e1e8d7; border-radius: 8px; color: #5c704a; background: #f8faf3; cursor: pointer; font-size: 9px; font-weight: 700; white-space: nowrap; }
 .class-update-mark-read:hover { border-color: #cbd9bd; background: #f0f5e8; }
 .class-update-card.class-update-unread { padding-left: 10px; border-left: 3px solid #a0ba79; background: linear-gradient(95deg, rgba(241, 247, 231, .8), rgba(255, 254, 250, 0) 70%); }
@@ -1434,7 +1430,7 @@ button.bulletin-item:active:not(:disabled):not(.sidebar-scrim) { transform: none
   .upcoming-event, .event-card, .club-card, .announcement-card { transform: none !important; }
 }
 
-/* The clicked card itself becomes the dialog surface (no clone shell). */
+/* The source card remains the dialog surface; its original content reflows in place. */
 .origin-card-placeholder { visibility: hidden !important; pointer-events: none !important; }
 .app-shell-modal-origin-active .workspace { isolation: auto; }
 .app-shell-modal-origin-active .main-content { z-index: auto; }
@@ -1442,6 +1438,8 @@ button.bulletin-item:active:not(:disabled):not(.sidebar-scrim) { transform: none
 .origin-card-expanded {
   position: fixed !important;
   z-index: 101 !important;
+  box-sizing: border-box;
+  overflow: auto !important;
   border: 1px solid rgba(255, 255, 255, .86) !important;
   border-radius: 16px !important;
   background: #fffefa !important;
@@ -1449,58 +1447,181 @@ button.bulletin-item:active:not(:disabled):not(.sidebar-scrim) { transform: none
   outline: none !important;
   transform-origin: top left !important;
   will-change: transform, opacity;
+  transition: none !important;
+  cursor: default;
 }
-.origin-card-expanded > *:not(.origin-card-detail-content) { pointer-events: none; }
-.origin-card-expanded > .origin-card-detail-content {
-  position: absolute;
-  z-index: 2;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  overflow: auto;
-  background: #fffefa;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
+.origin-card-expanded:hover,
+.origin-card-expanded:active { transform: none; }
+.origin-card-expansion-opening,
+.origin-card-expansion-closing { pointer-events: none; }
+.origin-card-expanded .origin-card-close { position: absolute; top: 14px; right: 14px; }
+.origin-card-expanded.event-card { display: flex; flex-direction: column; }
+.origin-card-expanded .event-card-heading { min-height: 0; gap: 12px; padding: 25px 28px 0; }
+.origin-card-expanded .event-card-symbol { width: 44px; height: 44px; border-radius: 12px; }
+.origin-card-expanded .event-date-summary { font-size: 11px; }
+.origin-card-expanded .event-card-content { padding: 20px 28px 28px; }
+.origin-card-expanded .event-day-label { font-size: 12px; }
+.origin-card-expanded .event-card-title { margin: 10px 0 9px; color: #2e3d34; font-size: 25px; letter-spacing: -.7px; line-height: 1.2; cursor: default; }
+.origin-card-expanded .event-card-content > p {
+  display: block;
+  overflow: visible;
+  min-height: 0;
+  color: #718076;
+  font-size: 13px;
+  line-height: 1.7;
+  -webkit-box-orient: initial;
+  -webkit-line-clamp: unset;
 }
-.origin-card-expanded.origin-card-expansion-opening > *:not(.origin-card-detail-content) {
-  opacity: 0;
-  visibility: visible;
-  pointer-events: none;
+.origin-card-expanded .event-card-details { gap: 10px; margin-top: 18px; padding-top: 15px; }
+.origin-card-expanded .event-card-details > span { font-size: 12px; white-space: normal; }
+.origin-card-expanded .event-card-footer { margin-top: auto; padding-top: 19px; }
+.origin-card-expanded .event-seat-label { font-size: 11px; }
+.origin-card-expanded .event-card-footer > button:not(.origin-card-register) { display: none; }
+.origin-card-expanded .origin-card-register { align-self: flex-end; margin-top: auto; }
+.origin-card-expanded .event-card-footer .origin-card-register { margin-top: 0; }
+.origin-card-expanded.upcoming-event {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 18px;
+  min-height: 0;
+  padding: 28px !important;
+  border-top: 1px solid rgba(255, 255, 255, .86) !important;
 }
-.origin-card-expanded.origin-card-expansion-opening > .origin-card-detail-content {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
+.origin-card-expanded .date-tile { width: 60px; min-width: 60px; height: 66px; border-radius: 13px; }
+.origin-card-expanded .date-tile > span { font-size: 9px; }
+.origin-card-expanded .date-tile > strong { font-size: 23px; }
+.origin-card-expanded .date-tile > small { font-size: 8px; }
+.origin-card-expanded .upcoming-event-copy { flex: 0 0 auto; }
+.origin-card-expanded .event-meta-line { gap: 8px; font-size: 11px; }
+.origin-card-expanded .upcoming-event-title { overflow: visible; color: #2e3d34; font-size: 25px; line-height: 1.25; text-overflow: clip; white-space: normal; cursor: default; }
+.origin-card-expanded .upcoming-event-venue { overflow: visible; margin-top: 12px; font-size: 12px; white-space: normal; }
+.origin-card-expanded .registered-mini { top: 33px; left: 108px; width: 19px; height: 19px; }
+.origin-card-expanded .upcoming-event-open { display: none; }
+.origin-card-expanded.events-glance-next {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 18px;
+  padding: 28px !important;
 }
-.origin-card-expanded.origin-card-expansion-open > *:not(.origin-card-detail-content) {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
+.origin-card-expanded .events-glance-icon { width: 48px; height: 48px; border-radius: 13px; }
+.origin-card-expanded .events-glance-copy { flex: 0 0 auto; gap: 9px; }
+.origin-card-expanded .events-glance-copy small { overflow: visible; font-size: 10px; white-space: normal; }
+.origin-card-expanded .events-glance-copy strong { overflow: visible; color: #2e3d34; font-size: 25px; line-height: 1.25; white-space: normal; }
+.origin-card-expanded .events-glance-arrow { display: none; }
+.origin-card-expanded.club-card { display: flex; flex-direction: column; min-height: 0; padding: 28px !important; }
+.origin-card-expanded .club-mark { width: 48px; height: 48px; border-radius: 13px; }
+.origin-card-expanded .club-members { font-size: 10px; }
+.origin-card-expanded .club-category { margin-top: 22px; font-size: 11px; }
+.origin-card-expanded .club-card-title { margin: 8px 0 10px; color: #2f3e35; font-size: 25px; line-height: 1.25; letter-spacing: -.65px; cursor: default; }
+.origin-card-expanded .club-card > p { min-height: 0; color: #6f7d73; font-size: 13px; line-height: 1.7; }
+.origin-card-expanded .club-next { gap: 10px; margin-top: 20px; padding: 13px 14px; }
+.origin-card-expanded .club-next small { font-size: 9px; }
+.origin-card-expanded .club-next strong { overflow: visible; font-size: 11px; white-space: normal; }
+.origin-card-expanded .club-card-footer { margin-top: auto; padding-top: 19px; }
+.origin-card-expanded .club-details-link { display: none; }
+.origin-card-expanded.announcement-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+  min-height: 0;
+  padding: 28px !important;
 }
-.origin-card-expanded.origin-card-expansion-open > .origin-card-detail-content {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
+.origin-card-expanded.announcement-unread { border-left: 4px solid #b5ca8c !important; }
+.origin-card-expanded .announcement-icon { width: 46px; height: 46px; border-radius: 12px; }
+.origin-card-expanded .announcement-card-content { flex: 0 0 auto; }
+.origin-card-expanded .announcement-meta { padding-right: 100px; gap: 8px; font-size: 10px; }
+.origin-card-expanded .announcement-title {
+  display: block;
+  overflow: visible;
+  margin: 15px 0 10px;
+  color: #304037;
+  font-size: 24px;
+  line-height: 1.25;
+  text-overflow: clip;
+  white-space: normal;
+  cursor: default;
 }
-.origin-card-expanded.origin-card-expansion-closing > *:not(.origin-card-detail-content) {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: none;
+.origin-card-expanded .announcement-card-content > p {
+  display: block;
+  overflow: visible;
+  max-width: none;
+  color: #6f7d73;
+  font-size: 13px;
+  line-height: 1.75;
+  -webkit-box-orient: initial;
+  -webkit-line-clamp: unset;
 }
-.origin-card-expanded.origin-card-expansion-closing > .origin-card-detail-content {
-  opacity: 0;
-  visibility: visible;
-  pointer-events: none;
+.origin-card-expanded .announcement-new { position: absolute; top: 30px; right: 68px; font-size: 9px; }
+.origin-card-expanded .announcement-open { display: none; }
+.origin-card-expanded.bulletin-item {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  padding: 28px !important;
 }
-.origin-card-detail-content .modal-banner { flex: 0 0 auto; }
-.origin-card-detail-content .modal-close { position: absolute; }
+.origin-card-expanded .bulletin-symbol { width: 46px; height: 46px; border-radius: 12px; }
+.origin-card-expanded .bulletin-copy { flex: 0 0 auto; gap: 8px; }
+.origin-card-expanded .bulletin-meta { flex-wrap: wrap; gap: 7px; font-size: 10px; }
+.origin-card-expanded .bulletin-copy > strong { overflow: visible; color: #304037; font-size: 24px; line-height: 1.25; text-overflow: clip; white-space: normal; }
+.origin-card-expanded .bulletin-copy > small { font-size: 11px; }
+.origin-card-expanded .bulletin-arrow { display: none; }
+.origin-card-expanded.club-glance-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 15px;
+  min-height: 0;
+  padding: 28px !important;
+  border-top: 1px solid rgba(255, 255, 255, .86) !important;
+}
+.origin-card-expanded.club-glance-row > span {
+  display: block;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+.origin-card-expanded.club-glance-row [data-label]::before {
+  content: attr(data-label);
+  display: block;
+  margin-bottom: 5px;
+  color: #879287;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .7px;
+}
+.origin-card-expanded .club-glance-date { color: #657568; font-size: 12px; }
+.origin-card-expanded .club-glance-club { color: #546457; font-size: 13px; }
+.origin-card-expanded .club-glance-title { color: #2e3d34; font-size: 21px; line-height: 1.3; }
+.origin-card-expanded .club-glance-location { color: #6f7d73; font-size: 12px; }
 .modal-backdrop-origin { display: block; padding: 0; cursor: default; }
 .app-shell-modal-origin-closing .modal-backdrop { animation-duration: .52s; }
 .app-shell-modal-origin-closing .modal-shell { animation: none !important; }
+@media (max-width: 600px) {
+  .origin-card-expanded .event-card-heading { gap: 9px; padding: 22px 18px 0; }
+  .origin-card-expanded .event-card-content { padding: 17px 18px 21px; }
+  .origin-card-expanded .event-card-title,
+  .origin-card-expanded .club-card-title,
+  .origin-card-expanded .upcoming-event-title,
+  .origin-card-expanded .events-glance-copy strong,
+  .origin-card-expanded .bulletin-copy > strong,
+  .origin-card-expanded .club-glance-title { font-size: 21px; }
+  .origin-card-expanded.club-card { padding: 22px 18px !important; }
+  .origin-card-expanded.announcement-card,
+  .origin-card-expanded.upcoming-event,
+  .origin-card-expanded.events-glance-next,
+  .origin-card-expanded.bulletin-item,
+  .origin-card-expanded.club-glance-row { padding: 23px 18px !important; }
+  .origin-card-expanded .announcement-title { font-size: 21px; }
+  .origin-card-expanded .announcement-new { top: 25px; right: 65px; }
+  .origin-card-expanded .registered-mini { left: 84px; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .origin-card-expanded > *:not(.origin-card-detail-content),
-  .origin-card-expanded > .origin-card-detail-content { transition: none !important; }
+  .origin-card-expanded { will-change: auto; }
 }
 
 /* Class-representative posts stay distinct from official campus notices. */
